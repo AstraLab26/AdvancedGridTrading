@@ -16,8 +16,8 @@ enum ENUM_ON_TARGET { ON_TARGET_RESET = 0, ON_TARGET_STOP = 1 };
 //| 1. GRID                                                           |
 //+------------------------------------------------------------------+
 input group "=== 1. GRID ==="
-input double GridDistancePips = 3000.0;         // Grid distance (pips)
-input int MaxGridLevels = 20;                   // Number of grid levels per side (above/below base line)
+input double GridDistancePips = 2500.0;         // Grid distance (pips)
+input int MaxGridLevels = 50;                   // Number of grid levels per side (above/below base line)
 input bool AutoRefillOrders = true;             // Auto refill orders when closed
 
 //+------------------------------------------------------------------+
@@ -27,37 +27,37 @@ input group "=== 2. ORDERS ==="
 
 input group "--- 2.1 BUY LIMIT ---"
 input bool EnableBuyLimit = true;               // Enable
-input double LotSizeBuyLimit = 0.01;            // Initial lot (level 1)
-input double TakeProfitPipsBuyLimit = 3000.0;  // Take Profit (pips, 0=off)
-input ENUM_LOT_SCALE BuyLimitLotScale = LOT_FIXED;     // Lot mode: Fixed / Geometric
-input double BuyLimitLotMult = 2.0;            // Lot multiplier per level (Geometric)
+input double LotSizeBuyLimit = 0.01;            // Initial lot (level 1, fixed)
+input ENUM_LOT_SCALE BuyLimitLotScale = LOT_FIXED;  // Fixed / Geometric
+input double LotMultBuyLimit = 1.0;             // Lot mult for level 2+ (Geometric)
+input double TakeProfitPipsBuyLimit = 2500.0;  // Take Profit (pips, 0=off)
 
 input group "--- 2.2 BUY STOP ---"
 input bool EnableBuyStop = true;                // Enable
-input double LotSizeBuyStop = 4.0;              // Initial lot (level 1)
+input double LotSizeBuyStop = 4.0;             // Initial lot (level 1, fixed)
+input ENUM_LOT_SCALE BuyStopLotScale = LOT_GEOMETRIC;   // Fixed / Geometric
+input double LotMultBuyStop = 0.9;              // Lot mult for level 2+ (Geometric)
 input bool BuyStopOnlyAboveBase = true;         // Only place above base line (disable = place all levels)
 input double TakeProfitPipsBuyStop = 0.0;      // Take Profit (pips, 0=off)
-input ENUM_LOT_SCALE BuyStopLotScale = LOT_GEOMETRIC;  // Lot mode: Fixed / Geometric
-input double BuyStopLotMult = 0.8;              // Lot multiplier per level (Geometric)
 
 input group "--- 2.3 SELL LIMIT ---"
 input bool EnableSellLimit = true;             // Enable
-input double LotSizeSellLimit = 0.01;           // Initial lot (level 1)
-input double TakeProfitPipsSellLimit = 3000.0; // Take Profit (pips, 0=off)
-input ENUM_LOT_SCALE SellLimitLotScale = LOT_FIXED;    // Lot mode: Fixed / Geometric
-input double SellLimitLotMult = 2.0;           // Lot multiplier per level (Geometric)
+input double LotSizeSellLimit = 0.01;           // Initial lot (level 1, fixed)
+input ENUM_LOT_SCALE SellLimitLotScale = LOT_FIXED; // Fixed / Geometric
+input double LotMultSellLimit = 1.0;            // Lot mult for level 2+ (Geometric)
+input double TakeProfitPipsSellLimit = 2500.0; // Take Profit (pips, 0=off)
 
 input group "--- 2.4 SELL STOP ---"
 input bool EnableSellStop = true;               // Enable
-input double LotSizeSellStop = 4.0;             // Initial lot (level 1)
+input double LotSizeSellStop = 4.0;             // Initial lot (level 1, fixed)
+input ENUM_LOT_SCALE SellStopLotScale = LOT_GEOMETRIC;  // Fixed / Geometric
+input double LotMultSellStop = 0.9;             // Lot mult for level 2+ (Geometric)
 input bool SellStopOnlyBelowBase = true;        // Only place below base line (disable = place all levels)
 input double TakeProfitPipsSellStop = 0.0;     // Take Profit (pips, 0=off)
-input ENUM_LOT_SCALE SellStopLotScale = LOT_GEOMETRIC; // Lot mode: Fixed / Geometric
-input double SellStopLotMult = 0.8;             // Lot multiplier per level (Geometric)
 
 input group "--- 2.5 COMMON ---"
 input int MagicNumber = 123456;                // Magic Number (EA identifier)
-input string CommentOrder = "Advanced Grid";   // Order comment
+input string CommentOrder = "EA Grid";         // Order comment
 
 //+------------------------------------------------------------------+
 //| 3. SESSION: Reset / SL / Balance / Trailing                       |
@@ -94,7 +94,7 @@ input double GongLaiStepPips = 1000.0;         // Pips: step to move SL (update 
 //+------------------------------------------------------------------+
 input group "=== 7. SCALE BY ACCOUNT % ==="
 input bool EnableScaleByAccountGrowth = true;   // Enable: lot, TP, SL, trailing scale by x% account growth
-input double BaseCapitalUSD = 50000.0;         // Base capital (USD): 0 = use balance at EA attach; >0 = use this as base
+input double BaseCapitalUSD = 100000.0;        // Base capital (USD): 0 = use balance at EA attach; >0 = use this as base
 input double AccountGrowthScalePct = 50.0;     // x% (max 100): account +100% vs base -> scale by x%
 
 //+------------------------------------------------------------------+
@@ -171,6 +171,8 @@ int OnInit()
       Print("Order balance: reset when total open lot >= ", BalanceResetTotalLot, " and session profit >= ", BalanceResetMinProfitUSD, " USD");
    if(EnableScaleByAccountGrowth)
       Print("Base capital = ", balanceGoc, " USD", BaseCapitalUSD > 0 ? " (manual)" : " (balance at attach)", ". Lot/TP/SL/Trailing x ", AccountGrowthScalePct, "% growth. mult=", sessionMultiplier);
+   Print("Lot per type (L1,L2,L3): BuyStop=", GetLotForLevel(ORDER_TYPE_BUY_STOP,1), ",", GetLotForLevel(ORDER_TYPE_BUY_STOP,2), ",", GetLotForLevel(ORDER_TYPE_BUY_STOP,3),
+         " | SellStop=", GetLotForLevel(ORDER_TYPE_SELL_STOP,1), ",", GetLotForLevel(ORDER_TYPE_SELL_STOP,2), ",", GetLotForLevel(ORDER_TYPE_SELL_STOP,3));
    Print("========================================");
    
    // On start place 4 order types (Buy/Sell, Limit/Stop) at grid levels, evenly spaced by gridStep
@@ -184,6 +186,7 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
+   DeleteCapitalGrowthLabel();
    Print("Advanced Grid Trading EA stopped. Reason: ", reason);
 }
 
@@ -361,20 +364,60 @@ void OnTick()
 
 //+------------------------------------------------------------------+
 //| On EA reset: update sessionMultiplier by account growth %         |
-//| Formula: capital +X%, setting Y% -> params increase (X * Y/100)%   |
-//| Example: capital +100%, setting 50% -> lot/TP/SL/trailing +50% (mult=1.5) |
+//| Vốn tăng 100%, cài hàm số tăng 50% -> EA reset, các hàm số tăng 50%    |
+//| Formula: mult = 1 + growth × (AccountGrowthScalePct/100)         |
+//| Vốn base = BaseCapitalUSD (nếu >0) hoặc balance khi gắn EA. So sánh với vốn hiện tại. |
 //+------------------------------------------------------------------+
 void UpdateSessionMultiplierFromAccountGrowth()
 {
-   if(!EnableScaleByAccountGrowth || AccountGrowthScalePct <= 0 || balanceGoc <= 0)
+   if(balanceGoc <= 0)
       return;
-   double pct = MathMin(100.0, MathMax(0.0, AccountGrowthScalePct));
    double newBalance = AccountInfoDouble(ACCOUNT_BALANCE);
    double growth = (newBalance - balanceGoc) / balanceGoc;
-   sessionMultiplier = 1.0 + growth * (pct / 100.0);
-   if(sessionMultiplier < 0.1) sessionMultiplier = 0.1;
-   if(sessionMultiplier > 10.0) sessionMultiplier = 10.0;
-   Print("Reset: capital ", balanceGoc, " -> ", newBalance, " (+", (growth*100), "%). Setting ", pct, "% -> Lot/TP/SL/Trailing x ", sessionMultiplier);
+   if(EnableScaleByAccountGrowth && AccountGrowthScalePct > 0)
+   {
+      double pct = MathMin(100.0, MathMax(0.0, AccountGrowthScalePct));
+      sessionMultiplier = 1.0 + growth * (pct / 100.0);
+      if(sessionMultiplier < 0.1) sessionMultiplier = 0.1;
+      if(sessionMultiplier > 10.0) sessionMultiplier = 10.0;
+      Print("Reset: capital ", balanceGoc, " -> ", newBalance, " (+", (growth*100), "%). Setting ", pct, "% -> Lot/TP/SL/Trailing x ", sessionMultiplier);
+   }
+   UpdateCapitalGrowthLabel();
+}
+
+//+------------------------------------------------------------------+
+//| Cập nhật nhãn trên biểu đồ: vốn base, vốn hiện tại, % tăng, mult  |
+//| Khi BaseCapitalUSD > 0: so sánh vốn hiện tại vs vốn nhập input     |
+//+------------------------------------------------------------------+
+void UpdateCapitalGrowthLabel()
+{
+   if(balanceGoc <= 0)
+      return;
+   long chartId = ChartID();
+   double currentBal = AccountInfoDouble(ACCOUNT_BALANCE);
+   double growthPct = (balanceGoc > 0) ? ((currentBal - balanceGoc) / balanceGoc * 100.0) : 0;
+   string baseStr = (BaseCapitalUSD > 0) ? "Vốn base (input): " : "Vốn base (attach): ";
+   string txt = baseStr + DoubleToString(balanceGoc, 2) + " USD\n";
+   txt += "Vốn hiện tại: " + DoubleToString(currentBal, 2) + " USD\n";
+   txt += "Vốn tăng: " + (growthPct >= 0 ? "+" : "") + DoubleToString(growthPct, 2) + "%\n";
+   txt += "Hàm số x " + DoubleToString(sessionMultiplier, 2);
+   if(ObjectFind(chartId, "GridCapitalGrowth") < 0)
+      ObjectCreate(chartId, "GridCapitalGrowth", OBJ_LABEL, 0, 0, 0);
+   ObjectSetInteger(chartId, "GridCapitalGrowth", OBJPROP_CORNER, CORNER_LEFT_UPPER);
+   ObjectSetInteger(chartId, "GridCapitalGrowth", OBJPROP_XDISTANCE, 10);
+   ObjectSetInteger(chartId, "GridCapitalGrowth", OBJPROP_YDISTANCE, 25);
+   ObjectSetString(chartId, "GridCapitalGrowth", OBJPROP_TEXT, txt);
+   ObjectSetInteger(chartId, "GridCapitalGrowth", OBJPROP_COLOR, clrWhite);
+   ObjectSetInteger(chartId, "GridCapitalGrowth", OBJPROP_FONTSIZE, 9);
+   ObjectSetInteger(chartId, "GridCapitalGrowth", OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(chartId, "GridCapitalGrowth", OBJPROP_BACK, false);
+   ChartRedraw(chartId);
+}
+
+void DeleteCapitalGrowthLabel()
+{
+   ObjectDelete(ChartID(), "GridCapitalGrowth");
+   ChartRedraw(ChartID());
 }
 
 //+------------------------------------------------------------------+
@@ -644,6 +687,11 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
 }
 
 //+------------------------------------------------------------------+
+//| Grid structure: Base line = 0 (reference). Level 1 = closest to   |
+//| base. Level 2, 3, ... n = further from base. No orders at base.   |
+//+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
 //| Return exact price of level (index 0..totalLevels-1).             |
 //| Spacing between consecutive levels = gridStep (even).             |
 //+------------------------------------------------------------------+
@@ -656,45 +704,66 @@ double GetGridLevelPrice(int levelIndex)
 }
 
 //+------------------------------------------------------------------+
-//| Grid level 1-based (1 = nearest to base line, 2, 3, ...)          |
+//| Bậc lưới: trên đường gốc = +1,+2,...+n; dưới = -1,-2,...-n.      |
 //+------------------------------------------------------------------+
 int GetLevelNumberFromIndex(int levelIndex)
 {
    if(levelIndex < MaxGridLevels)
-      return levelIndex + 1;
-   return levelIndex - MaxGridLevels + 1;
+      return levelIndex + 1;   // +1, +2, ... +n
+   return -(levelIndex - MaxGridLevels + 1);   // -1, -2, ... -n
 }
 
 //+------------------------------------------------------------------+
-//| Get base lot (level 1) for order type                             |
+//| Lot đầu tiên (bậc 1): MỖI LOẠI LỆNH TÍNH RIÊNG. Tăng theo % vốn    |
+//| khi EnableScaleByAccountGrowth: lot = input × sessionMultiplier.   |
+//| Sell Stop = LotSizeSellStop | Buy Stop = LotSizeBuyStop | ...      |
 //+------------------------------------------------------------------+
 double GetBaseLotForOrderType(ENUM_ORDER_TYPE orderType)
 {
    double lot = LotSizeBuyLimit;
-   if(orderType == ORDER_TYPE_BUY_STOP)        lot = LotSizeBuyStop;
+   if(orderType == ORDER_TYPE_BUY_LIMIT)  lot = LotSizeBuyLimit;
+   else if(orderType == ORDER_TYPE_BUY_STOP)  lot = LotSizeBuyStop;
    else if(orderType == ORDER_TYPE_SELL_LIMIT) lot = LotSizeSellLimit;
    else if(orderType == ORDER_TYPE_SELL_STOP)  lot = LotSizeSellStop;
    return (EnableScaleByAccountGrowth) ? (lot * sessionMultiplier) : lot;
 }
 
 //+------------------------------------------------------------------+
-//| Lot for grid level and order type (Fixed / Geometric)             |
+//| Lot: Level 1 = fixed (input). Level 2+ = input * mult^(level-1)   |
+//| Scale and mult per order type.                                    |
+//+------------------------------------------------------------------+
+double GetLotMultForOrderType(ENUM_ORDER_TYPE orderType)
+{
+   if(orderType == ORDER_TYPE_BUY_LIMIT)  return LotMultBuyLimit;
+   if(orderType == ORDER_TYPE_BUY_STOP)   return LotMultBuyStop;
+   if(orderType == ORDER_TYPE_SELL_LIMIT) return LotMultSellLimit;
+   if(orderType == ORDER_TYPE_SELL_STOP)  return LotMultSellStop;
+   return 1.0;
+}
+
+ENUM_LOT_SCALE GetLotScaleForOrderType(ENUM_ORDER_TYPE orderType)
+{
+   if(orderType == ORDER_TYPE_BUY_LIMIT)  return BuyLimitLotScale;
+   if(orderType == ORDER_TYPE_BUY_STOP)   return BuyStopLotScale;
+   if(orderType == ORDER_TYPE_SELL_LIMIT) return SellLimitLotScale;
+   if(orderType == ORDER_TYPE_SELL_STOP)  return SellStopLotScale;
+   return LOT_FIXED;
+}
+
+//+------------------------------------------------------------------+
+//| CÁCH TÍNH LOT: Bậc +1/-1 = lot đầu tiên. Bậc +2/-2, +3/-3... =     |
+//| gấp thếp theo hệ số. levelNum: +1..+n (trên), -1..-n (dưới).       |
 //+------------------------------------------------------------------+
 double GetLotForLevel(ENUM_ORDER_TYPE orderType, int levelNum)
 {
+   int absLevel = MathAbs(levelNum);
    double baseLot = GetBaseLotForOrderType(orderType);
-   ENUM_LOT_SCALE mode = LOT_FIXED;
-   double multVal = 1.0;
-   if(orderType == ORDER_TYPE_BUY_LIMIT)  { mode = BuyLimitLotScale;  multVal = BuyLimitLotMult;  }
-   else if(orderType == ORDER_TYPE_BUY_STOP)  { mode = BuyStopLotScale;  multVal = BuyStopLotMult;  }
-   else if(orderType == ORDER_TYPE_SELL_LIMIT) { mode = SellLimitLotScale; multVal = SellLimitLotMult; }
-   else if(orderType == ORDER_TYPE_SELL_STOP)  { mode = SellStopLotScale;  multVal = SellStopLotMult;  }
-   
+   ENUM_LOT_SCALE scale = GetLotScaleForOrderType(orderType);
    double lot = baseLot;
-   if(levelNum <= 1 || mode == LOT_FIXED)
-      lot = baseLot;
-   else if(mode == LOT_GEOMETRIC)
-      lot = baseLot * MathPow(multVal, levelNum - 1);
+   if(absLevel <= 1 || scale == LOT_FIXED)
+      lot = baseLot;   // Bậc +1/-1 = lot đầu tiên
+   else if(scale == LOT_GEOMETRIC)
+      lot = baseLot * MathPow(GetLotMultForOrderType(orderType), absLevel - 1);   // Bậc +2/-2... = gấp thếp
    
    double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
    double maxLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
@@ -734,7 +803,10 @@ void InitializeGridLevels()
 }
 
 //+------------------------------------------------------------------+
-//| Manage grid system                                                |
+//| Manage grid: place orders from level 1 (closest to base) outward  |
+//| GHI NHỚ BẬC LƯỚI: Đường gốc = bậc 0. Trên đường gốc = +1,+2,...+n. |
+//| Dưới đường gốc = -1,-2,...-n. EA đặt lệnh chờ theo thứ tự này.     |
+//| Each level evenly spaced by gridStep.                             |
 //+------------------------------------------------------------------+
 void ManageGridOrders()
 {
@@ -743,31 +815,37 @@ void ManageGridOrders()
    
    CancelStopOrdersOutsideBaseZone();
    double currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double minDistance = gridStep * 0.5;
    
-   // Levels evenly spaced by gridStep; place orders at level price so pendings align with grid
-   for(int i = 0; i < ArraySize(gridLevels); i++)
+   // Iterate by level: 1 (closest to base), 2, 3, ... n (furthest)
+   for(int levelNum = 1; levelNum <= MaxGridLevels; levelNum++)
    {
-      double level = gridLevels[i];  // Exact price (from GetGridLevelPrice), evenly spaced
-      
-      // Skip level too close to current price (half grid step)
-      double minDistance = gridStep * 0.5;
-      if(MathAbs(level - currentPrice) < minDistance)
-         continue;
-      
-      int levelNum = GetLevelNumberFromIndex(i);
-      if(level > currentPrice)
+      // Above base: index = levelNum - 1
+      int idxAbove = levelNum - 1;
+      double levelAbove = gridLevels[idxAbove];
+      if(MathAbs(levelAbove - currentPrice) >= minDistance)
       {
-         if(EnableBuyStop && (!BuyStopOnlyAboveBase || level >= basePrice))
-            EnsureOrderAtLevel(ORDER_TYPE_BUY_STOP, level, levelNum);
-         if(EnableSellLimit)
-            EnsureOrderAtLevel(ORDER_TYPE_SELL_LIMIT, level, levelNum);
+         if(levelAbove > currentPrice)
+         {
+            if(EnableBuyStop && (!BuyStopOnlyAboveBase || levelAbove >= basePrice))
+               EnsureOrderAtLevel(ORDER_TYPE_BUY_STOP, levelAbove, +levelNum);
+            if(EnableSellLimit)
+               EnsureOrderAtLevel(ORDER_TYPE_SELL_LIMIT, levelAbove, +levelNum);
+         }
       }
-      else if(level < currentPrice)
+      
+      // Below base: index = MaxGridLevels + levelNum - 1
+      int idxBelow = MaxGridLevels + levelNum - 1;
+      double levelBelow = gridLevels[idxBelow];
+      if(MathAbs(levelBelow - currentPrice) >= minDistance)
       {
-         if(EnableBuyLimit)
-            EnsureOrderAtLevel(ORDER_TYPE_BUY_LIMIT, level, levelNum);
-         if(EnableSellStop && (!SellStopOnlyBelowBase || level <= basePrice))
-            EnsureOrderAtLevel(ORDER_TYPE_SELL_STOP, level, levelNum);
+         if(levelBelow < currentPrice)
+         {
+            if(EnableBuyLimit)
+               EnsureOrderAtLevel(ORDER_TYPE_BUY_LIMIT, levelBelow, -levelNum);
+            if(EnableSellStop && (!SellStopOnlyBelowBase || levelBelow <= basePrice))
+               EnsureOrderAtLevel(ORDER_TYPE_SELL_STOP, levelBelow, -levelNum);
+         }
       }
    }
 }
@@ -1009,7 +1087,7 @@ void PlacePendingOrder(ENUM_ORDER_TYPE orderType, double priceLevel, int levelNu
       result = trade.SellStop(lot, price, _Symbol, sl, tp, ORDER_TIME_GTC, 0, CommentOrder);
    
    if(result)
-      Print("Order placed: ", EnumToString(orderType), " at ", price, " lot ", lot, " (level ", levelNum, ")");
+      Print("Order placed: ", EnumToString(orderType), " at ", price, " lot ", lot, " (bậc ", levelNum > 0 ? "+" : "", levelNum, ")");
    else
       Print("Order error: ", EnumToString(orderType), " | Error: ", GetLastError());
 }
