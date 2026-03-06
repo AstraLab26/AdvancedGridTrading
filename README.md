@@ -2,7 +2,7 @@
 
 **Version 2.00** — Pro edition with per-order lot, scale by capital, trailing profit, and session management.
 
-An Expert Advisor that places grid orders around a base price line. When attached to a chart, the current BID price becomes the **base line**. The EA creates grid levels above and below, placing pending orders (Buy Limit, Buy Stop, Sell Limit, Sell Stop) at each level. It auto-refills orders when closed, supports session reset by profit/loss, trailing profit lock, and scales lot/TP/SL by account growth % when EA resets.
+An Expert Advisor that places grid orders around a base price line. When attached to a chart, the current BID price becomes the **base line**. The EA has two order sets: **AA** (4 types: Buy Limit, Buy Stop, Sell Limit, Sell Stop) and **BB** (Stop only: Buy Stop above base, Sell Stop below base). BB has separate parameters and can be enabled/disabled. Both use the same grid; lot scales by capital % on EA reset.
 
 ---
 
@@ -11,15 +11,17 @@ An Expert Advisor that places grid orders around a base price line. When attache
 - **Base line (level 0)**: BID price when EA is attached (or after each reset). Reference only; no orders placed here.
 - **Levels +1, +2, … +n**: Above base. +1 = first lot; +2, +3… = scaled by multiplier.
 - **Levels -1, -2, … -n**: Below base. -1 = first lot; -2, -3… = scaled by multiplier.
-- **Levels per side**: `MaxGridLevels` above and below base (default 50).
-- **Lot scaling**: Each order type (Buy Limit, Buy Stop, Sell Limit, Sell Stop) has its own first lot. Level 2+ uses Geometric: lot = input × mult^(n−1) when Geometric is selected.
+- **Levels per side**: `MaxGridLevels` above and below base (default 20).
+- **Lot scaling**: Each order type has its own first lot. Level 2+ uses Geometric: lot = input × mult^(n−1) when Geometric is selected.
 
 ---
 
 ## Main Features
 
 - **Even grid spacing**: All levels and refills use the same grid step.
-- **Four order types**: Buy Limit, Buy Stop, Sell Limit, Sell Stop — enable/disable each independently.
+- **AA (4 order types)**: Buy Limit, Buy Stop, Sell Limit, Sell Stop — enable/disable each independently.
+- **BB (Stop only)**: Buy Stop above base, Sell Stop below base — separate lot/scale/mult/TP; enable/disable as a set.
+- **Order comments**: AA orders show "EA Grid AA +1", "EA Grid AA -2", etc.; BB orders show "EA Grid BB +1", "EA Grid BB -2".
 - **Per-order lot**: Individual initial lot (level 1) for each order type.
 - **Per-order TP**: Individual Take Profit (pips, 0=off) for each order type.
 - **Stop placement rules**: Buy Stop only above base line; Sell Stop only below base line (configurable).
@@ -42,30 +44,44 @@ An Expert Advisor that places grid orders around a base price line. When attache
 
 | Section | Parameter | Default |
 |---------|-----------|---------|
-| GRID | Grid distance (pips) | 2500 |
-| GRID | Number of grid levels per side | 50 |
+| GRID | Grid distance (pips) | 1500 |
+| GRID | Number of grid levels per side | 20 |
 | GRID | Auto refill | true |
+| BUY LIMIT | Initial lot | 0.02 |
 | BUY LIMIT | Lot scale | Fixed |
-| BUY LIMIT | Take Profit (pips) | 2500 |
+| BUY LIMIT | Take Profit (pips) | 1500 |
+| BUY STOP | Initial lot | 0.04 |
 | BUY STOP | Lot scale | Geometric |
-| BUY STOP | Lot mult | 0.9 |
+| BUY STOP | Lot mult | 2 |
+| SELL LIMIT | Initial lot | 0.02 |
 | SELL LIMIT | Lot scale | Fixed |
-| SELL LIMIT | Take Profit (pips) | 2500 |
+| SELL LIMIT | Take Profit (pips) | 1500 |
+| SELL STOP | Initial lot | 0.04 |
 | SELL STOP | Lot scale | Geometric |
-| SELL STOP | Lot mult | 0.9 |
-| COMMON | Order comment | EA Grid |
+| SELL STOP | Lot mult | 2 |
+| COMMON | Order comment | EA Grid AA |
+| BB | Enable | true |
+| BB | Lot (Buy/Sell Stop) | 4 |
+| BB | Lot scale | Geometric |
+| BB | Lot mult | 0.5 |
+| BB | Take Profit (pips) | 1500 |
+| BB | Order comment | EA Grid BB |
+| Order Balance | Total lot to trigger reset | 8 |
+| Trailing | Start when profit >= (USD) | 200 |
 | SCALE | Base capital (USD) | 100000 |
 
 ### 1. GRID
+
 | Parameter | Description |
 |-----------|-------------|
 | Grid distance (pips) | Spacing between grid levels. |
 | Number of grid levels per side | Levels above and below base line. |
 | Auto refill orders when closed | Enable automatic refill when orders are closed. |
 
-### 2. ORDERS
+### 2. ORDERS (AA)
 
 #### 2.1 BUY LIMIT / 2.2 BUY STOP / 2.3 SELL LIMIT / 2.4 SELL STOP
+
 | Parameter | Description |
 |-----------|-------------|
 | Enable | Enable/disable this order type. |
@@ -76,12 +92,25 @@ An Expert Advisor that places grid orders around a base price line. When attache
 | Lot multiplier per level | Geometric multiplier. |
 
 #### 2.5 COMMON
+
 | Parameter | Description |
 |-----------|-------------|
 | Magic Number | EA identifier for orders. |
-| Order comment | Comment on orders. |
+| Order comment (AA) | Base comment for AA orders; level is appended (e.g. "EA Grid AA +1"). |
+
+### 2B. ORDERS BB (Stop only)
+
+| Parameter | Description |
+|-----------|-------------|
+| Enable BB | Enable BB pending orders (Buy Stop above, Sell Stop below). |
+| LotSizeBuyStopBB / LotSizeSellStopBB | Initial lot for BB Buy Stop / Sell Stop. |
+| BBLotScale | Fixed or Geometric for BB. |
+| LotMultBB | Lot multiplier for level 2+ (Geometric). |
+| TakeProfitPipsBuyStopBB / TakeProfitPipsSellStopBB | TP (pips, 0=off). |
+| Order comment (BB) | Base comment for BB orders; level is appended (e.g. "EA Grid BB -2"). |
 
 ### 3. SESSION: Reset by Profit
+
 | Parameter | Description |
 |-----------|-------------|
 | Enable reset when session profit reaches target | Enable session reset by profit. |
@@ -89,6 +118,7 @@ An Expert Advisor that places grid orders around a base price line. When attache
 | On target: Reset EA / Stop EA | Reset (new session) or Stop (no new orders). |
 
 ### 4. SESSION: SL (Total Loss)
+
 | Parameter | Description |
 |-----------|-------------|
 | Enable session SL when total session loss hits level | Enable session SL. |
@@ -96,6 +126,7 @@ An Expert Advisor that places grid orders around a base price line. When attache
 | On SL: Reset EA / Stop EA | Reset or Stop. |
 
 ### 5. SESSION: Order Balance
+
 | Parameter | Description |
 |-----------|-------------|
 | Enable | Reset when total lot ≥ threshold and session profit ≥ min. |
@@ -103,6 +134,7 @@ An Expert Advisor that places grid orders around a base price line. When attache
 | Session profit must be >= this (USD) to allow reset | Min profit (USD). |
 
 ### 6. SESSION: Trailing Profit
+
 | Parameter | Description |
 |-----------|-------------|
 | Enable trailing | Cancel pendings, trail SL when profit ≥ threshold. |
@@ -113,6 +145,7 @@ An Expert Advisor that places grid orders around a base price line. When attache
 | Pips: step to move SL | Step to update SL. |
 
 ### 7. SCALE BY ACCOUNT %
+
 | Parameter | Description |
 |-----------|-------------|
 | Enable | Scale lot, TP, SL, trailing by x% account growth. |
@@ -120,6 +153,7 @@ An Expert Advisor that places grid orders around a base price line. When attache
 | x% (max 100) | Capital +100% vs base → params scale by x%. E.g. 50% = half of growth. |
 
 ### 8. NOTIFICATIONS
+
 | Parameter | Description |
 |-----------|-------------|
 | Send notification when EA resets or stops | Enable push/email notifications. |
@@ -134,6 +168,7 @@ An Expert Advisor that places grid orders around a base price line. When attache
 - **Example**: Capital +100%, setting 50% → EA reset → lot/TP/SL/trailing +50% (mult = 1.5).
 - **Updated**: Only when EA resets (trailing lock, session SL, session TP, order balance).
 - **Chart label**: Top-left corner shows base capital, current capital, % growth, and multiplier.
+- **Applies to**: Both AA and BB orders use the same sessionMultiplier for their respective first lots.
 
 ---
 
@@ -160,7 +195,7 @@ An Expert Advisor that places grid orders around a base price line. When attache
 - **Base line** is fixed until reset; after reset, current price becomes new base.
 - **Session** = from EA attach or last reset; total = closed profit + open floating.
 - **Base capital** for scaling: BaseCapitalUSD (input) or balance at EA attach; unchanged during session.
-- **First lot**: Each order type (Sell Stop, Buy Stop, Sell Limit, Buy Limit) has its own lot from its own input.
+- **First lot**: Each order type (AA and BB) has its own lot from its own input. AA: Buy Limit, Buy Stop, Sell Limit, Sell Stop. BB: Buy Stop, Sell Stop (separate from AA).
 - **Pips**: EA uses `pnt × 10` for 1 pip (5/3 digit pairs); verify for other symbols.
 
 ---
