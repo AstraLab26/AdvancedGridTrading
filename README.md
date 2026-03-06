@@ -2,17 +2,17 @@
 
 **Version 2.00** — Pro edition with per-order lot, scale by capital, trailing profit, and session management.
 
-An Expert Advisor that places grid orders around a base price line. When attached to a chart, the current BID price becomes the **base line**. The EA creates grid levels above and below, placing pending orders (Buy Limit, Buy Stop, Sell Limit, Sell Stop) at each level. It auto-refills orders when closed, supports session reset by profit/loss, trailing profit lock, and scales lot/TP/SL by account growth %.
+An Expert Advisor that places grid orders around a base price line. When attached to a chart, the current BID price becomes the **base line**. The EA creates grid levels above and below, placing pending orders (Buy Limit, Buy Stop, Sell Limit, Sell Stop) at each level. It auto-refills orders when closed, supports session reset by profit/loss, trailing profit lock, and scales lot/TP/SL by account growth % when EA resets.
 
 ---
 
 ## Grid Structure
 
-- **Base line**: BID price when EA is attached (or after each reset).
-- **Level 1**: Half grid step from base (X/2 pips).
-- **Level 2, 3, …**: Each level spaced by **X pips** (GridDistancePips).
-- **Levels per side**: `MaxGridLevels` above and below base; no orders at the base line itself.
-- **Example** (MaxGridLevels = 1): 1 level above + 1 below; each level can have 1 Buy + 1 Sell (pending or open).
+- **Base line (level 0)**: BID price when EA is attached (or after each reset). Reference only; no orders placed here.
+- **Levels +1, +2, … +n**: Above base. +1 = first lot; +2, +3… = scaled by multiplier.
+- **Levels -1, -2, … -n**: Below base. -1 = first lot; -2, -3… = scaled by multiplier.
+- **Levels per side**: `MaxGridLevels` above and below base (default 50).
+- **Lot scaling**: Each order type (Buy Limit, Buy Stop, Sell Limit, Sell Stop) has its own first lot. Level 2+ uses Geometric: lot = input × mult^(n−1) when Geometric is selected.
 
 ---
 
@@ -31,12 +31,30 @@ An Expert Advisor that places grid orders around a base price line. When attache
 - **Order balance reset**: When total open lot ≥ threshold and session profit ≥ min (USD) → Reset EA.
 - **Trailing profit**: When profit ≥ threshold → cancel pendings, trail SL on open positions; lock profit when it drops by % from peak.
 - **Trailing threshold modes**: Session (open + closed) or Open only (only open positions).
-- **Scale by account %**: Lot, TP, SL, trailing threshold scale by capital growth; base capital can be manual or balance at attach.
+- **Scale by account %**: First lot increases by capital % when EA resets. Base capital = input (BaseCapitalUSD) or balance at EA attach. Chart label shows base capital, current capital, % growth, and multiplier.
 - **Stop EA mode**: Close all, cancel pendings, no new orders.
 
 ---
 
 ## Input Parameters
+
+### Default Values
+
+| Section | Parameter | Default |
+|---------|-----------|---------|
+| GRID | Grid distance (pips) | 2500 |
+| GRID | Number of grid levels per side | 50 |
+| GRID | Auto refill | true |
+| BUY LIMIT | Lot scale | Fixed |
+| BUY LIMIT | Take Profit (pips) | 2500 |
+| BUY STOP | Lot scale | Geometric |
+| BUY STOP | Lot mult | 0.9 |
+| SELL LIMIT | Lot scale | Fixed |
+| SELL LIMIT | Take Profit (pips) | 2500 |
+| SELL STOP | Lot scale | Geometric |
+| SELL STOP | Lot mult | 0.9 |
+| COMMON | Order comment | EA Grid |
+| SCALE | Base capital (USD) | 100000 |
 
 ### 1. GRID
 | Parameter | Description |
@@ -108,12 +126,14 @@ An Expert Advisor that places grid orders around a base price line. When attache
 
 ---
 
-## Scale Formula
+## Scale Formula (Lot Increases by Capital %)
 
+- **Base capital**: BaseCapitalUSD (if >0) or balance at EA attach.
 - **Capital growth**: `growth = (currentBalance - baseCapital) / baseCapital`
 - **Multiplier**: `sessionMultiplier = 1.0 + growth × (AccountGrowthScalePct / 100)`
-- **Example**: Base 1000, current 1500, setting 50% → growth 50%, multiplier 1.25 (params +25%)
-- **Updated on**: Each EA reset (trailing lock, session SL, session TP, order balance)
+- **Example**: Capital +100%, setting 50% → EA reset → lot/TP/SL/trailing +50% (mult = 1.5).
+- **Updated**: Only when EA resets (trailing lock, session SL, session TP, order balance).
+- **Chart label**: Top-left corner shows base capital, current capital, % growth, and multiplier.
 
 ---
 
@@ -139,7 +159,8 @@ An Expert Advisor that places grid orders around a base price line. When attache
 
 - **Base line** is fixed until reset; after reset, current price becomes new base.
 - **Session** = from EA attach or last reset; total = closed profit + open floating.
-- **Base capital** for scaling: manual input or balance at attach; never changes.
+- **Base capital** for scaling: BaseCapitalUSD (input) or balance at EA attach; unchanged during session.
+- **First lot**: Each order type (Sell Stop, Buy Stop, Sell Limit, Buy Limit) has its own lot from its own input.
 - **Pips**: EA uses `pnt × 10` for 1 pip (5/3 digit pairs); verify for other symbols.
 
 ---
