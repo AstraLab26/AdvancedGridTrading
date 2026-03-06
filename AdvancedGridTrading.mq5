@@ -16,8 +16,8 @@ enum ENUM_ON_TARGET { ON_TARGET_RESET = 0, ON_TARGET_STOP = 1 };
 //| 1. GRID                                                           |
 //+------------------------------------------------------------------+
 input group "=== 1. GRID ==="
-input double GridDistancePips = 2500.0;         // Grid distance (pips)
-input int MaxGridLevels = 50;                   // Number of grid levels per side (above/below base line)
+input double GridDistancePips = 1500.0;         // Grid distance (pips)
+input int MaxGridLevels = 20;                   // Number of grid levels per side (above/below base line)
 input bool AutoRefillOrders = true;             // Auto refill orders when closed
 
 //+------------------------------------------------------------------+
@@ -27,37 +27,47 @@ input group "=== 2. ORDERS ==="
 
 input group "--- 2.1 BUY LIMIT ---"
 input bool EnableBuyLimit = true;               // Enable
-input double LotSizeBuyLimit = 0.01;            // Initial lot (level 1, fixed)
+input double LotSizeBuyLimit = 0.02;            // Initial lot (level 1, fixed)
 input ENUM_LOT_SCALE BuyLimitLotScale = LOT_FIXED;  // Fixed / Geometric
 input double LotMultBuyLimit = 1.0;             // Lot mult for level 2+ (Geometric)
-input double TakeProfitPipsBuyLimit = 2500.0;  // Take Profit (pips, 0=off)
+input double TakeProfitPipsBuyLimit = 1500.0;  // Take Profit (pips, 0=off)
 
 input group "--- 2.2 BUY STOP ---"
 input bool EnableBuyStop = true;                // Enable
-input double LotSizeBuyStop = 4.0;             // Initial lot (level 1, fixed)
+input double LotSizeBuyStop = 0.04;             // Initial lot (level 1, fixed)
 input ENUM_LOT_SCALE BuyStopLotScale = LOT_GEOMETRIC;   // Fixed / Geometric
-input double LotMultBuyStop = 0.9;              // Lot mult for level 2+ (Geometric)
+input double LotMultBuyStop = 2.0;              // Lot mult for level 2+ (Geometric)
 input bool BuyStopOnlyAboveBase = true;         // Only place above base line (disable = place all levels)
 input double TakeProfitPipsBuyStop = 0.0;      // Take Profit (pips, 0=off)
 
 input group "--- 2.3 SELL LIMIT ---"
 input bool EnableSellLimit = true;             // Enable
-input double LotSizeSellLimit = 0.01;           // Initial lot (level 1, fixed)
+input double LotSizeSellLimit = 0.02;           // Initial lot (level 1, fixed)
 input ENUM_LOT_SCALE SellLimitLotScale = LOT_FIXED; // Fixed / Geometric
 input double LotMultSellLimit = 1.0;            // Lot mult for level 2+ (Geometric)
-input double TakeProfitPipsSellLimit = 2500.0; // Take Profit (pips, 0=off)
+input double TakeProfitPipsSellLimit = 1500.0; // Take Profit (pips, 0=off)
 
 input group "--- 2.4 SELL STOP ---"
 input bool EnableSellStop = true;               // Enable
-input double LotSizeSellStop = 4.0;             // Initial lot (level 1, fixed)
+input double LotSizeSellStop = 0.04;             // Initial lot (level 1, fixed)
 input ENUM_LOT_SCALE SellStopLotScale = LOT_GEOMETRIC;  // Fixed / Geometric
-input double LotMultSellStop = 0.9;             // Lot mult for level 2+ (Geometric)
+input double LotMultSellStop = 2.0;             // Lot mult for level 2+ (Geometric)
 input bool SellStopOnlyBelowBase = true;        // Only place below base line (disable = place all levels)
 input double TakeProfitPipsSellStop = 0.0;     // Take Profit (pips, 0=off)
 
 input group "--- 2.5 COMMON ---"
 input int MagicNumber = 123456;                // Magic Number (EA identifier)
-input string CommentOrder = "EA Grid";         // Order comment
+input string CommentOrder = "EA Grid AA";      // Order comment (AA)
+
+input group "=== 2B. ORDERS BB (Stop only, above/below base) ==="
+input bool EnableBB = true;                     // Enable BB pending orders
+input double LotSizeBuyStopBB = 4.0;            // BB Buy Stop: initial lot (level 1)
+input double LotSizeSellStopBB = 4.0;           // BB Sell Stop: initial lot (level 1)
+input ENUM_LOT_SCALE BBLotScale = LOT_GEOMETRIC;  // BB: Fixed / Geometric
+input double LotMultBB = 0.5;                   // BB: lot mult for level 2+
+input double TakeProfitPipsBuyStopBB = 1500.0; // BB Buy Stop TP (pips, 0=off)
+input double TakeProfitPipsSellStopBB = 1500.0;// BB Sell Stop TP (pips, 0=off)
+input string CommentOrderBB = "EA Grid BB";    // Order comment (BB)
 
 //+------------------------------------------------------------------+
 //| 3. SESSION: Reset / SL / Balance / Trailing                       |
@@ -74,7 +84,7 @@ input ENUM_ON_TARGET OnSLReached = ON_TARGET_RESET;     // On SL: Reset EA / Sto
 
 input group "=== 5. SESSION: Order Balance ==="
 input bool EnableBalanceReset = true;           // Enable: reset when total lot >= threshold and session profit >= min
-input double BalanceResetTotalLot = 15.0;      // Total open lot to trigger balance reset
+input double BalanceResetTotalLot = 8.0;       // Total open lot to trigger balance reset
 input double BalanceResetMinProfitUSD = 50.0;  // Session profit must be >= this (USD) to allow reset
 
 //--- Trailing threshold: Session = open+closed in session; OpenOnly = only open positions
@@ -84,7 +94,7 @@ enum ENUM_TRAILING_THRESHOLD_MODE { TRAILING_THRESHOLD_SESSION = 0,   // Session
 input group "=== 6. SESSION: Trailing Profit ==="
 input bool EnableTrailingTotalProfit = true;    // Enable trailing: cancel pendings, trail SL when profit >= threshold
 input ENUM_TRAILING_THRESHOLD_MODE TrailingThresholdMode = TRAILING_THRESHOLD_OPEN_ONLY;  // Threshold mode: Session / Open only
-input double TrailingThresholdUSD = 100.0;     // Start trailing when profit >= (USD)
+input double TrailingThresholdUSD = 200.0;     // Start trailing when profit >= (USD)
 input double TrailingLockStepPct = 20.0;       // Lock: close all when profit drops this % from peak
 input double GongLaiPips = 1500.0;             // Pips: SL distance from price (Buy A / Sell A)
 input double GongLaiStepPips = 1000.0;         // Pips: step to move SL (update every step pips)
@@ -173,6 +183,9 @@ int OnInit()
       Print("Base capital = ", balanceGoc, " USD", BaseCapitalUSD > 0 ? " (manual)" : " (balance at attach)", ". Lot/TP/SL/Trailing x ", AccountGrowthScalePct, "% growth. mult=", sessionMultiplier);
    Print("Lot per type (L1,L2,L3): BuyStop=", GetLotForLevel(ORDER_TYPE_BUY_STOP,1), ",", GetLotForLevel(ORDER_TYPE_BUY_STOP,2), ",", GetLotForLevel(ORDER_TYPE_BUY_STOP,3),
          " | SellStop=", GetLotForLevel(ORDER_TYPE_SELL_STOP,1), ",", GetLotForLevel(ORDER_TYPE_SELL_STOP,2), ",", GetLotForLevel(ORDER_TYPE_SELL_STOP,3));
+   if(EnableBB)
+      Print("BB enabled: BuyStop above, SellStop below. Lot L1,L2,L3: ", GetLotForLevelBB(true,1), ",", GetLotForLevelBB(true,2), ",", GetLotForLevelBB(true,3),
+            " | ", GetLotForLevelBB(false,1), ",", GetLotForLevelBB(false,2), ",", GetLotForLevelBB(false,3));
    Print("========================================");
    
    // On start place 4 order types (Buy/Sell, Limit/Stop) at grid levels, evenly spaced by gridStep
@@ -787,6 +800,41 @@ double GetTakeProfitPipsForOrderType(ENUM_ORDER_TYPE orderType)
 }
 
 //+------------------------------------------------------------------+
+//| BB: Base lot (level 1). Separate params, same % capital scaling.  |
+//+------------------------------------------------------------------+
+double GetBaseLotForOrderTypeBB(bool isBuyStop)
+{
+   double lot = isBuyStop ? LotSizeBuyStopBB : LotSizeSellStopBB;
+   return (EnableScaleByAccountGrowth) ? (lot * sessionMultiplier) : lot;
+}
+
+//+------------------------------------------------------------------+
+//| BB: Lot for level. Same logic as AA, separate params.             |
+//+------------------------------------------------------------------+
+double GetLotForLevelBB(bool isBuyStop, int levelNum)
+{
+   int absLevel = MathAbs(levelNum);
+   double baseLot = GetBaseLotForOrderTypeBB(isBuyStop);
+   double lot = baseLot;
+   if(absLevel <= 1 || BBLotScale == LOT_FIXED)
+      lot = baseLot;
+   else if(BBLotScale == LOT_GEOMETRIC)
+      lot = baseLot * MathPow(LotMultBB, absLevel - 1);
+   double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+   double maxLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
+   double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+   lot = MathMax(minLot, MathMin(maxLot, lot));
+   lot = MathFloor(lot / lotStep) * lotStep;
+   if(lot < minLot) lot = minLot;
+   return NormalizeDouble(lot, 2);
+}
+
+double GetTakeProfitPipsForOrderTypeBB(bool isBuyStop)
+{
+   return isBuyStop ? TakeProfitPipsBuyStopBB : TakeProfitPipsSellStopBB;
+}
+
+//+------------------------------------------------------------------+
 //| Initialize level prices - evenly spaced using gridStep            |
 //+------------------------------------------------------------------+
 void InitializeGridLevels()
@@ -829,6 +877,8 @@ void ManageGridOrders()
          {
             if(EnableBuyStop && (!BuyStopOnlyAboveBase || levelAbove >= basePrice))
                EnsureOrderAtLevel(ORDER_TYPE_BUY_STOP, levelAbove, +levelNum);
+            if(EnableBB)
+               EnsureOrderAtLevelBB(true, levelAbove, +levelNum);
             if(EnableSellLimit)
                EnsureOrderAtLevel(ORDER_TYPE_SELL_LIMIT, levelAbove, +levelNum);
          }
@@ -845,6 +895,8 @@ void ManageGridOrders()
                EnsureOrderAtLevel(ORDER_TYPE_BUY_LIMIT, levelBelow, -levelNum);
             if(EnableSellStop && (!SellStopOnlyBelowBase || levelBelow <= basePrice))
                EnsureOrderAtLevel(ORDER_TYPE_SELL_STOP, levelBelow, -levelNum);
+            if(EnableBB)
+               EnsureOrderAtLevelBB(false, levelBelow, -levelNum);
          }
       }
    }
@@ -872,56 +924,73 @@ void EnsureOrderAtLevel(ENUM_ORDER_TYPE orderType, double priceLevel, int levelN
 }
 
 //+------------------------------------------------------------------+
-//| Find pending order on same side near level                        |
+//| BB: Ensure order at level - Buy Stop above, Sell Stop below       |
+//+------------------------------------------------------------------+
+void EnsureOrderAtLevelBB(bool isBuyStop, double priceLevel, int levelNum)
+{
+   ulong ticket = 0;
+   double existingPrice = 0.0;
+   if(GetPendingOrderAtLevel(isBuyStop ? ORDER_TYPE_BUY_STOP : ORDER_TYPE_SELL_STOP, priceLevel, ticket, existingPrice, CommentOrderBB))
+   {
+      double desiredPrice = NormalizeDouble(priceLevel, dgt);
+      if(MathAbs(existingPrice - desiredPrice) > (pnt / 2.0))
+         AdjustPendingOrderToLevel(ticket, isBuyStop ? ORDER_TYPE_BUY_STOP : ORDER_TYPE_SELL_STOP, priceLevel, GetTakeProfitPipsForOrderTypeBB(isBuyStop));
+      return;
+   }
+   if(!CanPlaceOrderAtLevel(isBuyStop ? ORDER_TYPE_BUY_STOP : ORDER_TYPE_SELL_STOP, priceLevel, true))
+      return;
+   PlacePendingOrderBB(isBuyStop, priceLevel, levelNum);
+}
+
+//+------------------------------------------------------------------+
+//| Find pending order on same side near level. filterComment: ""=AA,  |
+//| CommentOrderBB=BB.                                                |
 //+------------------------------------------------------------------+
 bool GetPendingOrderAtLevel(ENUM_ORDER_TYPE orderType,
                             double priceLevel,
                             ulong &ticket,
-                            double &orderPrice)
+                            double &orderPrice,
+                            string filterComment = "")
 {
-   // Consider "at level" only if order price within half grid step (avoid mixing adjacent levels)
    double tolerance = gridStep * 0.5;
    bool   isBuySide = (orderType == ORDER_TYPE_BUY_LIMIT || orderType == ORDER_TYPE_BUY_STOP);
+   string matchComment = (filterComment == "") ? CommentOrder : filterComment;
 
    for(int i = 0; i < OrdersTotal(); i++)
    {
       ulong t = OrderGetTicket(i);
-      if(t <= 0)
+      if(t <= 0) continue;
+      if(OrderGetInteger(ORDER_MAGIC) != MagicNumber || OrderGetString(ORDER_SYMBOL) != _Symbol)
          continue;
-
-      if(OrderGetInteger(ORDER_MAGIC) != MagicNumber ||
-         OrderGetString(ORDER_SYMBOL) != _Symbol)
+      if(StringFind(OrderGetString(ORDER_COMMENT), matchComment) != 0)
          continue;
 
       ENUM_ORDER_TYPE ot = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
-      bool isOrderBuy    = (ot == ORDER_TYPE_BUY_LIMIT || ot == ORDER_TYPE_BUY_STOP);
-
-      // Only consider orders on same side (Buy-side or Sell-side)
-      if(isOrderBuy != isBuySide)
-         continue;
+      bool isOrderBuy = (ot == ORDER_TYPE_BUY_LIMIT || ot == ORDER_TYPE_BUY_STOP);
+      if(isOrderBuy != isBuySide) continue;
 
       double price = OrderGetDouble(ORDER_PRICE_OPEN);
       if(MathAbs(price - priceLevel) < tolerance)
       {
-         ticket      = t;
-         orderPrice  = price;
+         ticket = t;
+         orderPrice = price;
          return true;
       }
    }
-
    return false;
 }
 
 //+------------------------------------------------------------------+
-//| Adjust pending order to grid level                                |
+//| Adjust pending order to grid level. tpPipsOverride: -1=use AA/BB default |
 //+------------------------------------------------------------------+
 void AdjustPendingOrderToLevel(ulong ticket,
                                ENUM_ORDER_TYPE orderType,
-                               double priceLevel)
+                               double priceLevel,
+                               double tpPipsOverride = -1)
 {
    double price = NormalizeDouble(priceLevel, dgt);
    double sl = 0, tp = 0;
-   double tpPips = GetTakeProfitPipsForOrderType(orderType);
+   double tpPips = (tpPipsOverride >= 0) ? tpPipsOverride : GetTakeProfitPipsForOrderType(orderType);
 
    if(tpPips > 0)
    {
@@ -995,66 +1064,42 @@ bool OrderOrPositionExistsAtLevel(ENUM_ORDER_TYPE orderType, double priceLevel)
 }
 
 //+------------------------------------------------------------------+
-//| Check if order can be placed at level (grid balance)              |
+//| Check if order can be placed at level (grid balance).             |
+//| allowSecondOnSide: true for BB (max 2 Buy above / 2 Sell below).   |
 //+------------------------------------------------------------------+
-bool CanPlaceOrderAtLevel(ENUM_ORDER_TYPE orderType, double priceLevel)
+bool CanPlaceOrderAtLevel(ENUM_ORDER_TYPE orderType, double priceLevel, bool allowSecondOnSide = false)
 {
-   double tolerance = gridStep * 0.5;  // half grid step
+   double tolerance = gridStep * 0.5;
    bool isBuyOrder = (orderType == ORDER_TYPE_BUY_LIMIT || orderType == ORDER_TYPE_BUY_STOP);
-   
-   int buyCount = 0;
-   int sellCount = 0;
-   
-   // Count pending orders at this level
+   bool levelAbove = (priceLevel > basePrice);
+   int maxBuy = (levelAbove && (EnableBB || allowSecondOnSide)) ? 2 : 1;
+   int maxSell = (!levelAbove && (EnableBB || allowSecondOnSide)) ? 2 : 1;
+   int buyCount = 0, sellCount = 0;
+
    for(int i = 0; i < OrdersTotal(); i++)
    {
       ulong ticket = OrderGetTicket(i);
-      if(ticket > 0)
-      {
-         if(OrderGetInteger(ORDER_MAGIC) == MagicNumber && 
-            OrderGetString(ORDER_SYMBOL) == _Symbol)
-         {
-            double orderPrice = OrderGetDouble(ORDER_PRICE_OPEN);
-            if(MathAbs(orderPrice - priceLevel) < tolerance)
-            {
-               ENUM_ORDER_TYPE ot = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
-               if(ot == ORDER_TYPE_BUY_LIMIT || ot == ORDER_TYPE_BUY_STOP)
-                  buyCount++;
-               else if(ot == ORDER_TYPE_SELL_LIMIT || ot == ORDER_TYPE_SELL_STOP)
-                  sellCount++;
-            }
-         }
-      }
+      if(ticket <= 0) continue;
+      if(OrderGetInteger(ORDER_MAGIC) != MagicNumber || OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
+      double orderPrice = OrderGetDouble(ORDER_PRICE_OPEN);
+      if(MathAbs(orderPrice - priceLevel) >= tolerance) continue;
+      ENUM_ORDER_TYPE ot = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+      if(ot == ORDER_TYPE_BUY_LIMIT || ot == ORDER_TYPE_BUY_STOP) buyCount++;
+      else if(ot == ORDER_TYPE_SELL_LIMIT || ot == ORDER_TYPE_SELL_STOP) sellCount++;
    }
-   
-   // Count positions at this level
    for(int i = 0; i < PositionsTotal(); i++)
    {
       ulong ticket = PositionGetTicket(i);
-      if(ticket > 0)
-      {
-         if(PositionGetInteger(POSITION_MAGIC) == MagicNumber && 
-            PositionGetString(POSITION_SYMBOL) == _Symbol)
-         {
-            double posPrice = PositionGetDouble(POSITION_PRICE_OPEN);
-            if(MathAbs(posPrice - priceLevel) < tolerance)
-            {
-               ENUM_POSITION_TYPE pt = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
-               if(pt == POSITION_TYPE_BUY)
-                  buyCount++;
-               else if(pt == POSITION_TYPE_SELL)
-                  sellCount++;
-            }
-         }
-      }
+      if(ticket <= 0) continue;
+      if(PositionGetInteger(POSITION_MAGIC) != MagicNumber || PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      double posPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+      if(MathAbs(posPrice - priceLevel) >= tolerance) continue;
+      ENUM_POSITION_TYPE pt = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+      if(pt == POSITION_TYPE_BUY) buyCount++;
+      else if(pt == POSITION_TYPE_SELL) sellCount++;
    }
-   
-   // Check balance: max 1 Buy and 1 Sell per level
-   if(isBuyOrder && buyCount >= 1)
-      return false;
-   if(!isBuyOrder && sellCount >= 1)
-      return false;
-   
+   if(isBuyOrder && buyCount >= maxBuy) return false;
+   if(!isBuyOrder && sellCount >= maxSell) return false;
    return true;
 }
 
@@ -1076,19 +1121,48 @@ void PlacePendingOrder(ENUM_ORDER_TYPE orderType, double priceLevel, int levelNu
          tp = NormalizeDouble(price - tpPips * pnt * 10.0, dgt);
    }
    
+   string cmt = CommentOrder + " " + (levelNum > 0 ? "+" : "") + IntegerToString(levelNum);
    bool result = false;
    if(orderType == ORDER_TYPE_BUY_LIMIT)
-      result = trade.BuyLimit(lot, price, _Symbol, sl, tp, ORDER_TIME_GTC, 0, CommentOrder);
+      result = trade.BuyLimit(lot, price, _Symbol, sl, tp, ORDER_TIME_GTC, 0, cmt);
    else if(orderType == ORDER_TYPE_SELL_LIMIT)
-      result = trade.SellLimit(lot, price, _Symbol, sl, tp, ORDER_TIME_GTC, 0, CommentOrder);
+      result = trade.SellLimit(lot, price, _Symbol, sl, tp, ORDER_TIME_GTC, 0, cmt);
    else if(orderType == ORDER_TYPE_BUY_STOP)
-      result = trade.BuyStop(lot, price, _Symbol, sl, tp, ORDER_TIME_GTC, 0, CommentOrder);
+      result = trade.BuyStop(lot, price, _Symbol, sl, tp, ORDER_TIME_GTC, 0, cmt);
    else if(orderType == ORDER_TYPE_SELL_STOP)
-      result = trade.SellStop(lot, price, _Symbol, sl, tp, ORDER_TIME_GTC, 0, CommentOrder);
+      result = trade.SellStop(lot, price, _Symbol, sl, tp, ORDER_TIME_GTC, 0, cmt);
    
    if(result)
       Print("Order placed: ", EnumToString(orderType), " at ", price, " lot ", lot, " (bậc ", levelNum > 0 ? "+" : "", levelNum, ")");
    else
       Print("Order error: ", EnumToString(orderType), " | Error: ", GetLastError());
+}
+
+//+------------------------------------------------------------------+
+//| BB: Place pending order (Buy Stop or Sell Stop only)              |
+//+------------------------------------------------------------------+
+void PlacePendingOrderBB(bool isBuyStop, double priceLevel, int levelNum)
+{
+   double price = NormalizeDouble(priceLevel, dgt);
+   double lot   = GetLotForLevelBB(isBuyStop, levelNum);
+   double sl = 0, tp = 0;
+   double tpPips = GetTakeProfitPipsForOrderTypeBB(isBuyStop);
+   if(tpPips > 0)
+   {
+      if(isBuyStop)
+         tp = NormalizeDouble(price + tpPips * pnt * 10.0, dgt);
+      else
+         tp = NormalizeDouble(price - tpPips * pnt * 10.0, dgt);
+   }
+   string cmt = CommentOrderBB + " " + (levelNum > 0 ? "+" : "") + IntegerToString(levelNum);
+   bool result = false;
+   if(isBuyStop)
+      result = trade.BuyStop(lot, price, _Symbol, sl, tp, ORDER_TIME_GTC, 0, cmt);
+   else
+      result = trade.SellStop(lot, price, _Symbol, sl, tp, ORDER_TIME_GTC, 0, cmt);
+   if(result)
+      Print("Order placed BB: ", isBuyStop ? "BuyStop" : "SellStop", " at ", price, " lot ", lot, " (bậc ", levelNum > 0 ? "+" : "", levelNum, ")");
+   else
+      Print("Order error BB: ", isBuyStop ? "BuyStop" : "SellStop", " | Error: ", GetLastError());
 }
 //+------------------------------------------------------------------+
