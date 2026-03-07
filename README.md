@@ -1,206 +1,113 @@
-# Advanced Grid Trading EA (MetaTrader 5)
+# Advanced Grid Trading EA
 
-**Version 2.00** — Pro edition with per-order lot, scale by capital, trailing profit, and session management.
-
-An Expert Advisor that places grid orders around a base price line. When attached to a chart, the current BID price becomes the **base line**. The EA has two order sets: **AA** (4 types: Buy Limit, Buy Stop, Sell Limit, Sell Stop) and **BB** (Stop only: Buy Stop above base, Sell Stop below base). BB has separate parameters and can be enabled/disabled. Both use the same grid; lot scales by capital % on EA reset.
+MetaTrader 5 Expert Advisor for grid trading with two independent order types (AA and BB), trailing profit, session-based balance logic, and notifications.
 
 ---
 
-## Grid Structure
+## Overview
 
-- **Base line (level 0)**: BID price when EA is attached (or after each reset). Reference only; no orders placed here.
-- **Levels +1, +2, … +n**: Above base. +1 = first lot; +2, +3… = scaled by multiplier.
-- **Levels -1, -2, … -n**: Below base. -1 = first lot; -2, -3… = scaled by multiplier.
-- **Levels per side**: `MaxGridLevels` above and below base (default 20).
-- **Lot scaling**: Each order type has its own first lot. Level 2+ uses Geometric: lot = input × mult^(n−1) when Geometric is selected.
+- **Grid:** Base price at attach, evenly spaced levels (pips), max levels per side. Buy Stop above base, Sell Stop below base.
+- **AA & BB:** Separate lot, Fixed/Geometric, multiplier, max lot, TP, and comment. Same grid; each level has at most one AA and one BB (pending or position). AA uses Magic Number, BB uses Magic Number + 1. All orders use a single comment (e.g. "EA Grid").
+- **Session:** Current session starts when the EA is attached or when the EA performs an automatic reset. All balance and trailing logic uses only positions and closed P/L from the current session. P/L includes profit, swap, and commission where applicable.
 
 ---
 
-## Main Features
+## 1. GRID
 
-- **Even grid spacing**: All levels and refills use the same grid step.
-- **AA (4 order types)**: Buy Limit, Buy Stop, Sell Limit, Sell Stop — enable/disable each independently.
-- **BB (Stop only)**: Buy Stop above base, Sell Stop below base — separate lot/scale/mult/TP; enable/disable as a set.
-- **Order comments**: AA orders show "EA Grid AA +1", "EA Grid AA -2", etc.; BB orders show "EA Grid BB +1", "EA Grid BB -2".
-- **Per-order lot**: Individual initial lot (level 1) for each order type.
-- **Per-order TP**: Individual Take Profit (pips, 0=off) for each order type.
-- **Stop placement rules**: Buy Stop only above base line; Sell Stop only below base line (configurable).
-- **Lot scaling**: Fixed or Geometric per order type; level 2+ uses multiplier.
-- **Auto refill**: Replaces closed orders at correct grid levels.
-- **Snap to grid**: Adjusts pending orders that drift from grid levels.
-- **Session reset by profit**: When session profit ≥ target (USD) → Reset or Stop EA.
-- **Session SL (total loss)**: When session total ≤ -threshold (USD) → Reset or Stop EA.
-- **Order balance reset**: When total open lot ≥ threshold and session profit ≥ min (USD) → Reset EA.
-- **Trailing profit**: When profit ≥ threshold → cancel pendings, trail SL on open positions; lock profit when it drops by % from peak.
-- **Trailing threshold modes**: Session (open + closed) or Open only (only open positions).
-- **Scale by account %**: First lot increases by capital % when EA resets. Base capital = input (BaseCapitalUSD) or balance at EA attach. Chart label shows base capital, current capital, % growth, and multiplier.
-- **Stop EA mode**: Close all, cancel pendings, no new orders.
+| Parameter | Description |
+|-----------|-------------|
+| **Grid distance (pips)** | Distance between adjacent grid levels. |
+| **Max grid levels per side** | Maximum levels above and below the base line. |
+
+Levels are evenly spaced. No orders at the base; level 1 is closest to base, then level 2, 3, …
 
 ---
 
-## Input Parameters
+## 2. ORDERS
 
-### Default Values
+### 2.1 AA (settings)
 
-| Section | Parameter | Default |
-|---------|-----------|---------|
-| GRID | Grid distance (pips) | 1500 |
-| GRID | Number of grid levels per side | 20 |
-| GRID | Auto refill | true |
-| BUY LIMIT | Initial lot | 0.02 |
-| BUY LIMIT | Lot scale | Fixed |
-| BUY LIMIT | Take Profit (pips) | 1500 |
-| BUY STOP | Initial lot | 0.04 |
-| BUY STOP | Lot scale | Geometric |
-| BUY STOP | Lot mult | 2 |
-| SELL LIMIT | Initial lot | 0.02 |
-| SELL LIMIT | Lot scale | Fixed |
-| SELL LIMIT | Take Profit (pips) | 1500 |
-| SELL STOP | Initial lot | 0.04 |
-| SELL STOP | Lot scale | Geometric |
-| SELL STOP | Lot mult | 2 |
-| COMMON | Order comment | EA Grid AA |
-| BB | Enable | true |
-| BB | Lot (Buy/Sell Stop) | 4 |
-| BB | Lot scale | Geometric |
-| BB | Lot mult | 0.5 |
-| BB | Take Profit (pips) | 1500 |
-| BB | Order comment | EA Grid BB |
-| Order Balance | Total lot to trigger reset | 8 |
-| Trailing | Start when profit >= (USD) | 200 |
-| SCALE | Base capital (USD) | 100000 |
+- **Enable AA** – Turn AA (Buy Stop + Sell Stop) on/off.
+- **Lot level 1** – Lot size for the first level.
+- **Fixed / Geometric** – Lot scaling: Fixed or Geometric (multiplier per level).
+- **Lot multiplier** – For Geometric: multiplier for level 2+.
+- **Max lot** – Maximum lot per order (0 = no limit).
+- **Take profit (pips)** – TP in pips (0 = off).
 
-### 1. GRID
+**AA Auto balance (pair)**
 
-| Parameter | Description |
-|-----------|-------------|
-| Grid distance (pips) | Spacing between grid levels. |
-| Number of grid levels per side | Levels above and below base line. |
-| Auto refill orders when closed | Enable automatic refill when orders are closed. |
+- Close one **loss** (opposite side of base) + one **profit** (same side as price) when their **combined P/L ≥ threshold** (USD). Lots can differ. Price must be at least **5 grid levels** from base. Cooldown (seconds) after closing a pair.
 
-### 2. ORDERS (AA)
+**AA Balance by BB**
 
-#### 2.1 BUY LIMIT / 2.2 BUY STOP / 2.3 SELL LIMIT / 2.4 SELL STOP
+- Close one **losing AA** (opposite side) when **(BB closed P/L in session) + (that AA position P/L) ≥ threshold** (USD). Session only; price must be **5 levels** from base; cooldown after closing.
 
-| Parameter | Description |
-|-----------|-------------|
-| Enable | Enable/disable this order type. |
-| Initial lot (level 1) | Lot size for level 1; level 2+ uses multiplier if Geometric. |
-| Only place above/below base line | (Buy Stop / Sell Stop only) Restrict placement to one side of base. |
-| Take Profit (pips, 0=off) | Per-order TP; 0 = no TP. |
-| Lot mode: Fixed / Geometric | Fixed = same lot all levels; Geometric = level 2+ = base × multiplier^(level-1). |
-| Lot multiplier per level | Geometric multiplier. |
+### 2.2 Common (Magic & Comment)
 
-#### 2.5 COMMON
+- **Magic Number** – AA uses this magic; BB uses Magic Number + 1.
+- **Order comment** – Same comment for all orders (e.g. "EA Grid").
 
-| Parameter | Description |
-|-----------|-------------|
-| Magic Number | EA identifier for orders. |
-| Order comment (AA) | Base comment for AA orders; level is appended (e.g. "EA Grid AA +1"). |
+### 2.3 BB (settings)
 
-### 2B. ORDERS BB (Stop only)
+- Same structure as AA: Enable, lot, Fixed/Geometric, multiplier, max lot, Take profit.
 
-| Parameter | Description |
-|-----------|-------------|
-| Enable BB | Enable BB pending orders (Buy Stop above, Sell Stop below). |
-| LotSizeBuyStopBB / LotSizeSellStopBB | Initial lot for BB Buy Stop / Sell Stop. |
-| BBLotScale | Fixed or Geometric for BB. |
-| LotMultBB | Lot multiplier for level 2+ (Geometric). |
-| TakeProfitPipsBuyStopBB / TakeProfitPipsSellStopBB | TP (pips, 0=off). |
-| Order comment (BB) | Base comment for BB orders; level is appended (e.g. "EA Grid BB -2"). |
+**BB Auto balance**
 
-### 3. SESSION: Reset by Profit
-
-| Parameter | Description |
-|-----------|-------------|
-| Enable reset when session profit reaches target | Enable session reset by profit. |
-| Session profit to trigger reset (USD) | Target profit (USD) to trigger. |
-| On target: Reset EA / Stop EA | Reset (new session) or Stop (no new orders). |
-
-### 4. SESSION: SL (Total Loss)
-
-| Parameter | Description |
-|-----------|-------------|
-| Enable session SL when total session loss hits level | Enable session SL. |
-| Session loss to trigger SL (USD) | Trigger when total ≤ -this value. |
-| On SL: Reset EA / Stop EA | Reset or Stop. |
-
-### 5. SESSION: Order Balance
-
-| Parameter | Description |
-|-----------|-------------|
-| Enable | Reset when total lot ≥ threshold and session profit ≥ min. |
-| Total open lot to trigger balance reset | Lot threshold. |
-| Session profit must be >= this (USD) to allow reset | Min profit (USD). |
-
-### 6. SESSION: Trailing Profit
-
-| Parameter | Description |
-|-----------|-------------|
-| Enable trailing | Cancel pendings, trail SL when profit ≥ threshold. |
-| Threshold mode: Session / Open only | Session = open + closed; Open only = only open positions. |
-| Start trailing when profit >= (USD) | Profit threshold (USD). |
-| Lock: close all when profit drops this % from peak | Lock % from peak. |
-| Pips: SL distance from price | SL distance for Buy A / Sell A. |
-| Pips: step to move SL | Step to update SL. |
-
-### 7. SCALE BY ACCOUNT %
-
-| Parameter | Description |
-|-----------|-------------|
-| Enable | Scale lot, TP, SL, trailing by x% account growth. |
-| Base capital (USD) | 0 = use balance at EA attach; >0 = use this value as base. |
-| x% (max 100) | Capital +100% vs base → params scale by x%. E.g. 50% = half of growth. |
-
-### 8. NOTIFICATIONS
-
-| Parameter | Description |
-|-----------|-------------|
-| Send notification when EA resets or stops | Enable push/email notifications. |
+- Close **one losing BB** (opposite side) when **(BB closed P/L in session) + (that position P/L) ≥ threshold** (USD). Least negative first. Session only; price **5 levels** from base; cooldown.
 
 ---
 
-## Scale Formula (Lot Increases by Capital %)
+## 3. SESSION: Trailing profit
 
-- **Base capital**: BaseCapitalUSD (if >0) or balance at EA attach.
-- **Capital growth**: `growth = (currentBalance - baseCapital) / baseCapital`
-- **Multiplier**: `sessionMultiplier = 1.0 + growth × (AccountGrowthScalePct / 100)`
-- **Example**: Capital +100%, setting 50% → EA reset → lot/TP/SL/trailing +50% (mult = 1.5).
-- **Updated**: Only when EA resets (trailing lock, session SL, session TP, order balance).
-- **Chart label**: Top-left corner shows base capital, current capital, % growth, and multiplier.
-- **Applies to**: Both AA and BB orders use the same sessionMultiplier for their respective first lots.
+- **Enable trailing** – When open profit (current session) ≥ threshold (USD), cancel all pending and start trailing SL (Buy/Sell) on open positions.
+- **Start trailing when open profit ≥ (USD)** – Threshold to enter trailing mode.
+- **Lock: close all when profit drops this % from peak** – If profit falls by this % from the session peak, close all and reset (new session).
+- **Pips: SL distance / trailing step** – SL distance from price and step for trailing updates.
 
----
-
-## Installation & Usage (MT5)
-
-1. Copy `AdvancedGridTrading.mq5` to `MQL5/Experts/` (MT5 Data Folder).
-2. Open **MetaEditor** → open file → **Compile** (F7).
-3. In MT5: **Navigator** → Expert Advisors → drag EA onto chart.
-4. Enable **Algo Trading** for live trading.
-5. Adjust **Input** in the EA properties dialog.
+Only positions opened in the **current session** are used for trailing. Notifications are sent on reset, not on entering trailing.
 
 ---
 
-## Strategy Tester
+## 3B. SESSION: Balance orders (reset EA by grid levels)
 
-1. Open **Strategy Tester**, select Expert `AdvancedGridTrading`.
-2. Choose symbol, timeframe, test period.
-3. Run and check **Journal/Experts** for logs.
-
----
-
-## Notes
-
-- **Base line** is fixed until reset; after reset, current price becomes new base.
-- **Session** = from EA attach or last reset; total = closed profit + open floating.
-- **Base capital** for scaling: BaseCapitalUSD (input) or balance at EA attach; unchanged during session.
-- **First lot**: Each order type (AA and BB) has its own lot from its own input. AA: Buy Limit, Buy Stop, Sell Limit, Sell Stop. BB: Buy Stop, Sell Stop (separate from AA).
-- **Pips**: EA uses `pnt × 10` for 1 pip (5/3 digit pairs); verify for other symbols.
+- **Enable** – When enabled, the EA can **reset** (close all, new base, replace orders) when:
+  - Number of grid levels with an open position (current session) ≥ **Min grid levels**, and  
+  - Session total (closed + open P/L) ≥ **Session total threshold** (USD).
 
 ---
 
-## Files
+## 4. CAPITAL % SCALING
 
-- `AdvancedGridTrading.mq5` — EA source code.
-- `README.md` — This documentation.
+- **Scale by capital growth** – When enabled, lot, TP, SL, and trailing scale by account growth % vs base capital.
+- **Base capital (USD)** – 0 = balance when EA attached; > 0 = use this value.
+- **x% (max 100)** – Scaling factor (e.g. 50% = capital +100% vs base → multiply by 50%).
+
+---
+
+## 5. NOTIFICATIONS
+
+- **Send notification when EA resets or stops** – Push notification on full reset or EA stop. Content includes reason, chart, balance, %, max drawdown, max lot / total open.
+
+---
+
+## Session and P/L calculation
+
+- **Current session** starts when:
+  - The EA is **attached** to the chart, or  
+  - The EA performs an **automatic reset** (trailing lock, balance-orders reset, or trailing all closed).
+- On session start, session closed P/L and balance cooldowns are **reset to zero**; `sessionStartTime` is set.
+- **Closed P/L** (for session totals and BB closed) = **Profit + Swap + Commission** (deal-based).
+- **Open position P/L** (for balance and trailing) = **Profit + Swap** (commission applies when the position is closed).
+- Only **deals with time ≥ sessionStartTime** are counted in session closed P/L. Only **positions opened at or after sessionStartTime** are considered “current session” for trailing and balance logic.
+
+---
+
+## File
+
+- **AdvancedGridTrading.mq5** – Single EA file; attach to chart in MetaTrader 5.
+
+---
+
+## Version
+
+2.01 – Advanced Grid Trading EA (Pro edition).
