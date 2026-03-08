@@ -103,9 +103,9 @@ int dgt;
 double basePrice;                               // Base price (base line)
 double gridLevels[];                            // Array of level prices (evenly spaced by GridDistancePips)
 double gridStep;                                // One grid step (price) = GridDistancePips, used for tolerance/snap
-double sessionClosedProfit = 0.0;               // Total closed profit/loss in current session
-double sessionClosedProfitBB = 0.0;             // BB only: closed P/L in session (for balance BB)
-double sessionClosedProfitCC = 0.0;             // CC only: closed P/L in session (for balance CC)
+double sessionClosedProfit = 0.0;               // Session closed P/L (after lock). Reset on EA reset. AA balance only when >= 0
+double sessionClosedProfitBB = 0.0;             // BB closed P/L in session (after lock). AA-by-BB and BB balance only when >= 0
+double sessionClosedProfitCC = 0.0;             // CC closed P/L in session (after lock). CC balance only when >= 0
 datetime lastResetTime = 0;                     // Last reset time (avoid double-count from orders just closed on reset)
 bool eaStoppedByTarget = false;                 // true = EA stopped placing new orders (Stop mode)
 double balanceGoc = 0.0;                       // Account balance when EA was attached (base, unchanged)
@@ -762,11 +762,11 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
    if(lastResetTime > 0 && dealTime >= lastResetTime && dealTime <= lastResetTime + 15)
       return;   // Tránh cộng trùng deal từ lệnh vừa đóng khi reset
    
-   // Lệnh đóng: P/L = profit + swap (phí qua đêm) + commission (hoa hồng)
+   // Closed deal P/L = profit + swap + commission
    double dealPnL = HistoryDealGetDouble(trans.deal, DEAL_PROFIT)
                   + HistoryDealGetDouble(trans.deal, DEAL_SWAP)
                   + HistoryDealGetDouble(trans.deal, DEAL_COMMISSION);
-   // Lock profit: reserve X% of profitable close; remainder only is added to session. AA/BB/CC balance logic does not count the locked amount.
+   // In current session, when close is profitable: priority = lock % first (cất tiền); remaining $ only is available for balance (chi cho cân bằng lệnh)
    if(EnableLockProfit && LockProfitPct > 0 && dealPnL > 0)
    {
       double pct = MathMin(100.0, MathMax(0.0, LockProfitPct));
@@ -1039,6 +1039,9 @@ void DoBalanceAA()
 {
    if(!EnableAA || !EnableBalanceAA || BalanceAAThresholdUSD <= 0.0)
       return;
+   // Balance only when session has non-negative closed P/L (after lock): "available for balance" must be >= 0
+   if(sessionClosedProfit < 0)
+      return;
    if(BalanceAACooldownSec > 0 && lastBalanceAACloseTime > 0 && (TimeCurrent() - lastBalanceAACloseTime) < BalanceAACooldownSec)
       return;
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
@@ -1121,7 +1124,9 @@ void DoBalanceAA()
    {
       for(int P = 0; P < nProfit; P++)
       {
-         if(lossPls[L] + profitPls[P] >= BalanceAAThresholdUSD)
+         double pairSum = lossPls[L] + profitPls[P];
+         // Only balance when >= threshold AND remaining session (after close) stays >= 0 (do not spend more than available)
+         if(pairSum >= BalanceAAThresholdUSD && sessionClosedProfit + pairSum >= 0)
          {
             trade.PositionClose(lossTickets[L]);
             trade.PositionClose(profitTickets[P]);
@@ -1140,6 +1145,9 @@ void DoBalanceAA()
 void DoBalanceAAByBB()
 {
    if(!EnableAA || !EnableBalanceAAByBB || BalanceAAByBBThresholdUSD <= 0.0)
+      return;
+   // Balance only when BB session closed P/L (after lock) is >= 0; otherwise do not spend on balance
+   if(sessionClosedProfitBB < 0)
       return;
    if(BalanceAAByBBCooldownSec > 0 && lastBalanceAAByBBCloseTime > 0 && (TimeCurrent() - lastBalanceAAByBBCloseTime) < BalanceAAByBBCooldownSec)
       return;
@@ -1193,11 +1201,13 @@ void DoBalanceAAByBB()
          }
    for(int k = 0; k < cnt; k++)
    {
-      if(sessionClosedProfitBB + pls[k] >= BalanceAAByBBThresholdUSD)
+      double afterClose = sessionClosedProfitBB + pls[k];
+      // Only balance when >= threshold AND remaining (after close) >= 0: do not close if loss > available
+      if(afterClose >= BalanceAAByBBThresholdUSD && afterClose >= 0)
       {
          trade.PositionClose(tickets[k]);
          lastBalanceAAByBBCloseTime = TimeCurrent();
-         Print("Balance AA by BB: closed 1 losing AA (BB closed ", sessionClosedProfitBB, " + AA loss ", pls[k], " = ", sessionClosedProfitBB + pls[k], " USD >= ", BalanceAAByBBThresholdUSD, "). Cooldown ", BalanceAAByBBCooldownSec, "s.");
+         Print("Balance AA by BB: closed 1 losing AA (BB closed ", sessionClosedProfitBB, " + AA loss ", pls[k], " = ", afterClose, " USD >= ", BalanceAAByBBThresholdUSD, "). Cooldown ", BalanceAAByBBCooldownSec, "s.");
          return;
       }
    }
@@ -1211,8 +1221,11 @@ void DoBalanceBB()
 {
    if(!EnableBB || !EnableBalanceBB || BalanceBBThresholdUSD <= 0.0)
       return;
+   // Balance only when BB session closed P/L (after lock) is >= 0; otherwise do not spend on balance
+   if(sessionClosedProfitBB < 0)
+      return;
    if(BalanceBBCooldownSec > 0 && lastBalanceBBCloseTime > 0 && (TimeCurrent() - lastBalanceBBCloseTime) < BalanceBBCooldownSec)
-      return;   // Cooldown: tránh đóng lệnh âm liên tục khi giá đi ngang
+      return;
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    bool priceAboveBase = (bid > basePrice);
    // Giá phải cách đường gốc ít nhất 5 bậc lưới mới được đóng lệnh âm phía còn lại
@@ -1267,7 +1280,9 @@ void DoBalanceBB()
    int closedCount = 0;
    for(int k = 0; k < cnt; k++)
    {
-      if(runningClosed + pls[k] >= BalanceBBThresholdUSD)
+      double afterClose = runningClosed + pls[k];
+      // Only close when >= threshold AND remaining >= 0: if loss > available (e.g. 300 > 270) do not balance
+      if(afterClose >= BalanceBBThresholdUSD && afterClose >= 0)
       {
          trade.PositionClose(tickets[k]);
          runningClosed += pls[k];
@@ -1287,6 +1302,9 @@ void DoBalanceBB()
 void DoBalanceCC()
 {
    if(!EnableCC || !EnableBalanceCC || BalanceCCThresholdUSD <= 0.0)
+      return;
+   // Balance only when CC session closed P/L (after lock) is >= 0; otherwise do not spend on balance
+   if(sessionClosedProfitCC < 0)
       return;
    if(BalanceCCCooldownSec > 0 && lastBalanceCCCloseTime > 0 && (TimeCurrent() - lastBalanceCCCloseTime) < BalanceCCCooldownSec)
       return;
@@ -1341,7 +1359,9 @@ void DoBalanceCC()
    int closedCount = 0;
    for(int k = 0; k < cnt; k++)
    {
-      if(runningClosed + pls[k] >= BalanceCCThresholdUSD)
+      double afterClose = runningClosed + pls[k];
+      // Only close when >= threshold AND remaining >= 0: if loss > available do not balance
+      if(afterClose >= BalanceCCThresholdUSD && afterClose >= 0)
       {
          trade.PositionClose(tickets[k]);
          runningClosed += pls[k];
