@@ -1,6 +1,6 @@
 # Advanced Grid Trading EA
 
-MetaTrader 5 Expert Advisor for grid trading with three independent order types (AA, BB, CC), trailing profit, session-based balance logic, capital scaling, lock profit, and notifications.
+MetaTrader 5 Expert Advisor for grid trading with three independent order types (AA, BB, CC), trailing profit, session-based balance logic, capital scaling, lock profit (save %), and notifications.
 
 ---
 
@@ -8,7 +8,8 @@ MetaTrader 5 Expert Advisor for grid trading with three independent order types 
 
 - **Grid:** Base price at attach, evenly spaced levels (pips), max levels per side. Buy Stop above base, Sell Stop below base.
 - **AA, BB & CC:** Separate lot, Fixed/Geometric, multiplier, max lot, TP, and magic. Same grid; each level has at most one AA, one BB, and one CC (pending or position). AA = Magic Number, BB = Magic Number + 1, CC = Magic Number + 2. All orders use a single comment (e.g. "EA Grid").
-- **Session:** Current session starts when the EA is attached or when the EA performs an automatic reset. All balance and trailing logic uses only positions and closed P/L from the current session. P/L includes profit, swap, and commission where applicable.
+- **Session:** Current session starts when the EA is attached or when the EA performs an automatic reset. All balance and trailing logic uses only positions and closed P/L from the current session. **Only orders closed at Take Profit (TP)** contribute to the balance pool; SL or manual closes do not.
+- **Balance pool:** Pool = (AA + BB + CC) **TP closes in session** minus **lock % (savings)**. This single pool is used for balancing losing AA, BB, and CC. Balance is allowed only when **pool covers the loss** and **account balance after close does not fall below the floor** (session start balance + locked reserve).
 
 ---
 
@@ -34,13 +35,12 @@ Levels are evenly spaced. No orders at the base; level 1 is closest to base, the
 - **Max lot** – Maximum lot per order (0 = no limit).
 - **Take profit (pips)** – TP in pips (0 = off).
 
-**AA Auto balance (pair)**
+**AA Balance (by TP pool)**
 
-- Close one **loss** (opposite side of base) + one **profit** (same side as price) when their **combined P/L ≥ threshold** (USD). Lots can differ. Price must be at least **5 grid levels** from base. Cooldown (seconds) after closing a pair. **Only runs when session closed P/L (after lock) ≥ 0.**
-
-**AA Balance by BB**
-
-- Close one **losing AA** (opposite side) when **(BB closed P/L in session) + (that AA position P/L) ≥ threshold** (USD). Session only; price must be **5 levels** from base; cooldown after closing. **Only runs when BB session closed P/L (after lock) ≥ 0.**
+- Close **one losing AA** (opposite side) when:
+  1. **(Pool + that AA loss) ≥ threshold** (USD) and **≥ 0** (pool covers the loss).
+  2. **Account balance after close ≥ floor** (session start balance + locked profit reserve).
+- Pool = session **TP closes** (AA+BB+CC) minus lock %. Session only; price must be **5 levels** from base; cooldown after closing.
 
 ### 2.2 Common (Magic & Comment)
 
@@ -51,17 +51,17 @@ Levels are evenly spaced. No orders at the base; level 1 is closest to base, the
 
 - Same structure as AA: Enable, lot, Fixed/Geometric, multiplier, max lot, Take profit.
 
-**BB Auto balance**
+**BB Balance (by TP pool)**
 
-- Close **one losing BB** (opposite side) when **(BB closed P/L in session) + (that position P/L) ≥ threshold** (USD). Least negative first. Session only; price **5 levels** from base; cooldown. **Only runs when BB session closed P/L (after lock) ≥ 0.**
+- Close **losing BB** (opposite side) when (pool + that loss) ≥ threshold and ≥ 0, and **balance after close ≥ floor**. Least negative first. Pool = session TP closes minus lock %. Session only; price **5 levels** from base; cooldown.
 
 ### 2.4 CC (settings)
 
 - Same logic as BB, separate parameters: Enable, lot, Fixed/Geometric, multiplier, max lot, Take profit.
 
-**CC Auto balance**
+**CC Balance (by TP pool)**
 
-- Close **one losing CC** (opposite side) when **(CC closed P/L in session) + (that position P/L) ≥ threshold** (USD). Least negative first. Session only; price **5 levels** from base; cooldown. **Only runs when CC session closed P/L (after lock) ≥ 0.**
+- Close **losing CC** (opposite side) when (pool + that loss) ≥ threshold and ≥ 0, and **balance after close ≥ floor**. Least negative first. Same shared pool (TP closes − lock %). Session only; cooldown.
 
 ---
 
@@ -72,25 +72,15 @@ Levels are evenly spaced. No orders at the base; level 1 is closest to base, the
 - **Lock: close all when profit drops this % from peak** – If profit falls by this % from the session peak, close all and reset (new session).
 - **Pips: SL distance / trailing step** – SL distance from price and step for trailing updates.
 
-Only positions opened in the **current session** are used for trailing. Notifications are sent on reset, not on entering trailing.
-
----
-
-## 3B. SESSION: Balance orders (reset EA by grid levels)
-
-- **Enable** – When enabled, the EA can **reset** (close all, new base, replace orders) when:
-  - Number of grid levels with an open position (current session) ≥ **Min grid levels**, and  
-  - Session total (closed + open P/L) ≥ **Session total threshold** (USD).
+Only positions opened in the **current session** are used for trailing. Notifications are sent on reset.
 
 ---
 
 ## 4. CAPITAL % SCALING
 
 - **Scale by capital growth** – When enabled, **lot** (AA/BB/CC) and **trailing threshold (USD)** are scaled by account growth % vs base capital.
-- **Base capital (USD)** – 0 = balance when EA attached; > 0 = use this value. Base is set once and not updated on EA reset.
-- **x% (max 100)** – Scaling factor. Formula: `multiplier = 1 + growth × (x/100)`, where `growth = (current balance − base) / base`. Multiplier is clamped between 0.1 and 10. Example: base 50,000, current 75,000 → growth 50%; x = 50 → multiplier 1.25 → lots and trailing threshold × 1.25.
-
-**What is scaled:** AA/BB/CC base lot and Trailing threshold (USD). TP/SL (pips) use input values and are not multiplied by this factor.
+- **Base capital (USD)** – 0 = balance when EA attached; > 0 = use this value. Base is updated on EA reset (session start).
+- **x% (max 100)** – Scaling factor. Formula: `multiplier = 1 + growth × (x/100)`. Multiplier is clamped. TP/SL (pips) use input values and are not scaled.
 
 ---
 
@@ -102,46 +92,42 @@ Only positions opened in the **current session** are used for trailing. Notifica
 
 ## 6. LOCK PROFIT (Save %)
 
-**Meaning:** Lock profit = reserve a portion of each profitable close so that **this amount is not counted in AA/BB/CC balance logic** (and not in trailing/session totals for thresholds).
+**Meaning:** Lock profit = reserve a **percentage** of each **profitable TP close**. This amount is **not** used for the balance pool. Only the **remainder** (TP $ − lock %) is added to the pool that pays for closing losing orders.
 
 When enabled:
 
-- On each **profitable** close (deal P/L > 0), a **percentage** of that profit (e.g. 25%) is **locked** into a reserve.
-- **Deal P/L** = Profit + Swap + Commission. Locked = deal P/L × (Lock % / 100). Only the **remainder** is added to session closed P/L (and to BB/CC session totals when the deal is BB/CC).
-- The **locked amount** is **not** included in:
-  - Session closed totals used for **AA pair balance**, **AA by BB**, **BB auto balance**, **CC auto balance**
-  - Trailing threshold or session total for reset.
-- The locked reserve is **cumulative** and **never reset** by the EA. The reset notification shows: **Locked profit (saved, cumulative): X.XX USD**.
+- On each **profitable** close that is a **Take Profit** (TP), a **percentage** of that profit (e.g. 10%) is **locked** into a reserve.
+- **Deal P/L** = Profit + Swap + Commission. Locked = deal P/L × (Lock % / 100). Only the **remainder** is added to the session balance pool.
+- The **balance pool** = sum over current session of (TP close $ − lock %) for AA, BB, and CC. This pool is **shared** for balancing AA, BB, and CC.
+- **Floor:** When balancing, a losing order is closed only if **account balance after close ≥ session start balance + locked profit reserve**. So capital never drops below (session start + savings).
 
 **Parameters:**
 
 - **Enable Lock Profit** – Turn the feature on/off.
-- **Lock this %** – Percentage of each profitable close to reserve (0–100). Example: 25 = reserve 25 USD from 100 USD profit; only 75 USD counts toward balance/trailing.
+- **Lock this %** – Percentage of each profitable TP close to reserve (0–100). Example: 10 = reserve 10 USD from 100 USD profit; 90 USD goes to the balance pool.
 
-**Example (10% lock):**
+**Example (10% lock, floor):**
 
-- Start: **1000 USD**. Session starts at 1000 USD, session closed P/L = 0.
-- **Order 1** closes at TP **+100 USD** → 10% locked = 10 USD → **90 USD** added to “available for balance”.
-- **Order 2** closes at TP **+200 USD** → 10% locked = 20 USD → **180 USD** added to “available for balance”.
-- Total available for balance = 90 + 180 = **270 USD**. **Order 3** is open and **−100 USD**.
-- Balance condition met: 270 + (−100) = 170 ≥ threshold, session closed ≥ 0, and **remaining after close ≥ 0** (170 ≥ 0) → EA **closes order 3** (realizes −100).
-- After close: session closed P/L = **170 USD**. Locked reserve cumulative = **30 USD**. Account balance = 1000 + 100 + 200 − 100 = **1200 USD**.
-- **If order 3 had been −300 USD:** 270 + (−300) = −30 &lt; 0 → balance would **not** close it (do not spend more than the 270 available).
-- **EA reset** → new session; session closed P/L **resets to 0**; only deals in the new session count from then on.
+- EA resets; **session start balance = 1700 USD**. Lock % = 10%.
+- **Orders 1, 2, 3** close at TP: total profit **+300 USD** → 10% locked = **30 USD** → **270 USD** added to balance pool.
+- Account balance = 2000 USD. **Floor = 1700 + 30 = 1730 USD** (capital must not go below this).
+- **Orders 4, 5, 6** are losing. EA may close them only if:
+  - (Pool + that loss) ≥ threshold and ≥ 0 (pool covers the loss),
+  - **Balance after close ≥ 1730 USD** (so total loss taken from balance ≤ 270 USD).
+- So balance can drop to **minimum 1730 USD**, not lower. When more orders hit TP, pool increases and balancing can continue.
 
 ---
 
 ## Session and P/L calculation
 
-- **Current session** starts when:
-  - The EA is **attached** to the chart, or  
-  - The EA performs an **automatic reset** (trailing lock, balance-orders reset, or trailing all closed).
-- On session start, session closed P/L and balance cooldowns are **reset to zero**; `sessionStartTime` is set. Each EA reset = **new session** (count from the beginning). **Capital scaling multiplier** is updated on init and after each full reset (using current balance vs base).
-- **Closed P/L** (for session totals and balance) = **Profit + Swap + Commission** (deal-based). When Lock Profit is on: on each **profitable** close, a **percentage is locked** (reserve); only the **remainder** is added to session closed P/L. That remainder is the amount **available for balance** (AA, BB, CC).
-- **Balance rule:** Balance (AA pair, AA by BB, BB, CC) **only runs when** the relevant session closed P/L (after lock) is **≥ 0**. If session closed is negative, balance is not allowed (no spend on closing losers).
-- **Do not spend more than available:** A losing order is closed only when **after closing, the remaining session P/L (for that type) stays ≥ 0**. If the loss is greater than the available amount (e.g. 270 available, loss 300 → 270 − 300 = −30), balance does **not** close that order.
-- **Open position P/L** (for balance and trailing) = **Profit + Swap** (commission applies when the position is closed).
-- Only **deals with time ≥ sessionStartTime** are counted in session closed P/L. Only **positions opened at or after sessionStartTime** are considered “current session” for trailing and balance logic.
+- **Current session** starts when the EA is **attached** or when the EA **resets** (trailing lock or all closed).
+- **Only TP closes** (DEAL_REASON_TP) are counted in the balance pool. SL, manual, or stop-out closes do **not** add to the pool.
+- **Pool** = (AA + BB + CC) session TP closes, minus lock % on each profitable TP close. One shared pool for AA, BB, and CC balance.
+- **Balance rule:** Close a loser only when:
+  1. **(Pool + that loss) ≥ threshold** and **≥ 0** (pool covers the loss).
+  2. **Account balance after close ≥ session start balance + locked profit reserve** (floor).
+- **Remaining pool** is decreased when a losing order is closed (same tick: AA then BB then CC use the same remaining pool).
+- **Open position P/L** = Profit + Swap. Only positions opened at or after session start are considered for balance and trailing.
 
 ---
 
@@ -153,4 +139,4 @@ When enabled:
 
 ## Version
 
-2.01 – Advanced Grid Trading EA (Pro edition). AA, BB, CC; Lock profit; Capital % scaling; session-based balance and trailing.
+2.01 – Advanced Grid Trading EA (Pro). AA, BB, CC; only TP for pool; shared pool; floor = session start + locked; lock profit; capital scaling; session balance and trailing.
