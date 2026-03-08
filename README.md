@@ -1,13 +1,13 @@
 # Advanced Grid Trading EA
 
-MetaTrader 5 Expert Advisor for grid trading with two independent order types (AA and BB), trailing profit, session-based balance logic, and notifications.
+MetaTrader 5 Expert Advisor for grid trading with three independent order types (AA, BB, CC), trailing profit, session-based balance logic, capital scaling, lock profit, and notifications.
 
 ---
 
 ## Overview
 
 - **Grid:** Base price at attach, evenly spaced levels (pips), max levels per side. Buy Stop above base, Sell Stop below base.
-- **AA & BB:** Separate lot, Fixed/Geometric, multiplier, max lot, TP, and comment. Same grid; each level has at most one AA and one BB (pending or position). AA uses Magic Number, BB uses Magic Number + 1. All orders use a single comment (e.g. "EA Grid").
+- **AA, BB & CC:** Separate lot, Fixed/Geometric, multiplier, max lot, TP, and magic. Same grid; each level has at most one AA, one BB, and one CC (pending or position). AA = Magic Number, BB = Magic Number + 1, CC = Magic Number + 2. All orders use a single comment (e.g. "EA Grid").
 - **Session:** Current session starts when the EA is attached or when the EA performs an automatic reset. All balance and trailing logic uses only positions and closed P/L from the current session. P/L includes profit, swap, and commission where applicable.
 
 ---
@@ -44,7 +44,7 @@ Levels are evenly spaced. No orders at the base; level 1 is closest to base, the
 
 ### 2.2 Common (Magic & Comment)
 
-- **Magic Number** – AA uses this magic; BB uses Magic Number + 1.
+- **Magic Number** – AA uses this magic; BB = Magic + 1; CC = Magic + 2.
 - **Order comment** – Same comment for all orders (e.g. "EA Grid").
 
 ### 2.3 BB (settings)
@@ -54,6 +54,14 @@ Levels are evenly spaced. No orders at the base; level 1 is closest to base, the
 **BB Auto balance**
 
 - Close **one losing BB** (opposite side) when **(BB closed P/L in session) + (that position P/L) ≥ threshold** (USD). Least negative first. Session only; price **5 levels** from base; cooldown.
+
+### 2.4 CC (settings)
+
+- Same logic as BB, separate parameters: Enable, lot, Fixed/Geometric, multiplier, max lot, Take profit.
+
+**CC Auto balance**
+
+- Close **one losing CC** (opposite side) when **(CC closed P/L in session) + (that position P/L) ≥ threshold** (USD). Least negative first. Session only; price **5 levels** from base; cooldown.
 
 ---
 
@@ -78,15 +86,37 @@ Only positions opened in the **current session** are used for trailing. Notifica
 
 ## 4. CAPITAL % SCALING
 
-- **Scale by capital growth** – When enabled, lot, TP, SL, and trailing scale by account growth % vs base capital.
-- **Base capital (USD)** – 0 = balance when EA attached; > 0 = use this value.
-- **x% (max 100)** – Scaling factor (e.g. 50% = capital +100% vs base → multiply by 50%).
+- **Scale by capital growth** – When enabled, **lot** (AA/BB/CC) and **trailing threshold (USD)** are scaled by account growth % vs base capital.
+- **Base capital (USD)** – 0 = balance when EA attached; > 0 = use this value. Base is set once and not updated on EA reset.
+- **x% (max 100)** – Scaling factor. Formula: `multiplier = 1 + growth × (x/100)`, where `growth = (current balance − base) / base`. Multiplier is clamped between 0.1 and 10. Example: base 50,000, current 75,000 → growth 50%; x = 50 → multiplier 1.25 → lots and trailing threshold × 1.25.
+
+**What is scaled:** AA/BB/CC base lot and Trailing threshold (USD). TP/SL (pips) use input values and are not multiplied by this factor.
 
 ---
 
 ## 5. NOTIFICATIONS
 
-- **Send notification when EA resets or stops** – Push notification on full reset or EA stop. Content includes reason, chart, balance, %, max drawdown, max lot / total open.
+- **Send notification when EA resets or stops** – Push notification on full reset or EA stop. Content includes reason, chart, balance, %, max drawdown, max lot / total open. Reset message includes **Locked profit (saved, cumulative): X.XX USD** when lock profit is used.
+
+---
+
+## 6. LOCK PROFIT (Save %)
+
+**Meaning:** Lock profit = reserve a portion of each profitable close so that **this amount is not counted in AA/BB/CC balance logic** (and not in trailing/session totals for thresholds).
+
+When enabled:
+
+- On each **profitable** close (deal P/L > 0), a **percentage** of that profit (e.g. 25%) is **locked** into a reserve.
+- **Deal P/L** = Profit + Swap + Commission. Locked = deal P/L × (Lock % / 100). Only the **remainder** is added to session closed P/L (and to BB/CC session totals when the deal is BB/CC).
+- The **locked amount** is **not** included in:
+  - Session closed totals used for **AA pair balance**, **AA by BB**, **BB auto balance**, **CC auto balance**
+  - Trailing threshold or session total for reset.
+- The locked reserve is **cumulative** and **never reset** by the EA. The reset notification shows: **Locked profit (saved, cumulative): X.XX USD**.
+
+**Parameters:**
+
+- **Enable Lock Profit** – Turn the feature on/off.
+- **Lock this %** – Percentage of each profitable close to reserve (0–100). Example: 25 = reserve 25 USD from 100 USD profit; only 75 USD counts toward balance/trailing.
 
 ---
 
@@ -95,8 +125,8 @@ Only positions opened in the **current session** are used for trailing. Notifica
 - **Current session** starts when:
   - The EA is **attached** to the chart, or  
   - The EA performs an **automatic reset** (trailing lock, balance-orders reset, or trailing all closed).
-- On session start, session closed P/L and balance cooldowns are **reset to zero**; `sessionStartTime` is set.
-- **Closed P/L** (for session totals and BB closed) = **Profit + Swap + Commission** (deal-based).
+- On session start, session closed P/L and balance cooldowns are **reset to zero**; `sessionStartTime` is set. **Capital scaling multiplier** is updated on init and after each full reset (using current balance vs base).
+- **Closed P/L** (for session totals and balance) = **Profit + Swap + Commission** (deal-based). When Lock Profit is on, only the non-locked part of a profitable close is added to session totals.
 - **Open position P/L** (for balance and trailing) = **Profit + Swap** (commission applies when the position is closed).
 - Only **deals with time ≥ sessionStartTime** are counted in session closed P/L. Only **positions opened at or after sessionStartTime** are considered “current session” for trailing and balance logic.
 
@@ -110,4 +140,4 @@ Only positions opened in the **current session** are used for trailing. Notifica
 
 ## Version
 
-2.01 – Advanced Grid Trading EA (Pro edition).
+2.01 – Advanced Grid Trading EA (Pro edition). AA, BB, CC; Lock profit; Capital % scaling; session-based balance and trailing.
