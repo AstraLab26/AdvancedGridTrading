@@ -36,11 +36,11 @@ Levels are evenly spaced. No orders at the base; level 1 is closest to base, the
 
 **AA Auto balance (pair)**
 
-- Close one **loss** (opposite side of base) + one **profit** (same side as price) when their **combined P/L ≥ threshold** (USD). Lots can differ. Price must be at least **5 grid levels** from base. Cooldown (seconds) after closing a pair.
+- Close one **loss** (opposite side of base) + one **profit** (same side as price) when their **combined P/L ≥ threshold** (USD). Lots can differ. Price must be at least **5 grid levels** from base. Cooldown (seconds) after closing a pair. **Only runs when session closed P/L (after lock) ≥ 0.**
 
 **AA Balance by BB**
 
-- Close one **losing AA** (opposite side) when **(BB closed P/L in session) + (that AA position P/L) ≥ threshold** (USD). Session only; price must be **5 levels** from base; cooldown after closing.
+- Close one **losing AA** (opposite side) when **(BB closed P/L in session) + (that AA position P/L) ≥ threshold** (USD). Session only; price must be **5 levels** from base; cooldown after closing. **Only runs when BB session closed P/L (after lock) ≥ 0.**
 
 ### 2.2 Common (Magic & Comment)
 
@@ -53,7 +53,7 @@ Levels are evenly spaced. No orders at the base; level 1 is closest to base, the
 
 **BB Auto balance**
 
-- Close **one losing BB** (opposite side) when **(BB closed P/L in session) + (that position P/L) ≥ threshold** (USD). Least negative first. Session only; price **5 levels** from base; cooldown.
+- Close **one losing BB** (opposite side) when **(BB closed P/L in session) + (that position P/L) ≥ threshold** (USD). Least negative first. Session only; price **5 levels** from base; cooldown. **Only runs when BB session closed P/L (after lock) ≥ 0.**
 
 ### 2.4 CC (settings)
 
@@ -61,7 +61,7 @@ Levels are evenly spaced. No orders at the base; level 1 is closest to base, the
 
 **CC Auto balance**
 
-- Close **one losing CC** (opposite side) when **(CC closed P/L in session) + (that position P/L) ≥ threshold** (USD). Least negative first. Session only; price **5 levels** from base; cooldown.
+- Close **one losing CC** (opposite side) when **(CC closed P/L in session) + (that position P/L) ≥ threshold** (USD). Least negative first. Session only; price **5 levels** from base; cooldown. **Only runs when CC session closed P/L (after lock) ≥ 0.**
 
 ---
 
@@ -118,6 +118,17 @@ When enabled:
 - **Enable Lock Profit** – Turn the feature on/off.
 - **Lock this %** – Percentage of each profitable close to reserve (0–100). Example: 25 = reserve 25 USD from 100 USD profit; only 75 USD counts toward balance/trailing.
 
+**Example (10% lock):**
+
+- Start: **1000 USD**. Session starts at 1000 USD, session closed P/L = 0.
+- **Order 1** closes at TP **+100 USD** → 10% locked = 10 USD → **90 USD** added to “available for balance”.
+- **Order 2** closes at TP **+200 USD** → 10% locked = 20 USD → **180 USD** added to “available for balance”.
+- Total available for balance = 90 + 180 = **270 USD**. **Order 3** is open and **−100 USD**.
+- Balance condition met: 270 + (−100) = 170 ≥ threshold, session closed ≥ 0, and **remaining after close ≥ 0** (170 ≥ 0) → EA **closes order 3** (realizes −100).
+- After close: session closed P/L = **170 USD**. Locked reserve cumulative = **30 USD**. Account balance = 1000 + 100 + 200 − 100 = **1200 USD**.
+- **If order 3 had been −300 USD:** 270 + (−300) = −30 &lt; 0 → balance would **not** close it (do not spend more than the 270 available).
+- **EA reset** → new session; session closed P/L **resets to 0**; only deals in the new session count from then on.
+
 ---
 
 ## Session and P/L calculation
@@ -125,8 +136,10 @@ When enabled:
 - **Current session** starts when:
   - The EA is **attached** to the chart, or  
   - The EA performs an **automatic reset** (trailing lock, balance-orders reset, or trailing all closed).
-- On session start, session closed P/L and balance cooldowns are **reset to zero**; `sessionStartTime` is set. **Capital scaling multiplier** is updated on init and after each full reset (using current balance vs base).
-- **Closed P/L** (for session totals and balance) = **Profit + Swap + Commission** (deal-based). When Lock Profit is on, only the non-locked part of a profitable close is added to session totals.
+- On session start, session closed P/L and balance cooldowns are **reset to zero**; `sessionStartTime` is set. Each EA reset = **new session** (count from the beginning). **Capital scaling multiplier** is updated on init and after each full reset (using current balance vs base).
+- **Closed P/L** (for session totals and balance) = **Profit + Swap + Commission** (deal-based). When Lock Profit is on: on each **profitable** close, a **percentage is locked** (reserve); only the **remainder** is added to session closed P/L. That remainder is the amount **available for balance** (AA, BB, CC).
+- **Balance rule:** Balance (AA pair, AA by BB, BB, CC) **only runs when** the relevant session closed P/L (after lock) is **≥ 0**. If session closed is negative, balance is not allowed (no spend on closing losers).
+- **Do not spend more than available:** A losing order is closed only when **after closing, the remaining session P/L (for that type) stays ≥ 0**. If the loss is greater than the available amount (e.g. 270 available, loss 300 → 270 − 300 = −30), balance does **not** close that order.
 - **Open position P/L** (for balance and trailing) = **Profit + Swap** (commission applies when the position is closed).
 - Only **deals with time ≥ sessionStartTime** are counted in session closed P/L. Only **positions opened at or after sessionStartTime** are considered “current session” for trailing and balance logic.
 
