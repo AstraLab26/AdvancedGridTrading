@@ -27,7 +27,14 @@ Các bậc cách đều. Không đặt lệnh tại đường cơ sở; bậc 1 
 
 ## 2. ORDERS (LỆNH)
 
-### 2.1 AA (cài đặt)
+Thứ tự input: **Common** (Magic & Comment) trước, sau đó **AA**, **BB**, **CC** (mỗi loại có Enable, lot, TP, cân bằng).
+
+### 2.1 Common (Magic & Comment)
+
+- **Magic Number** – AA = magic này; BB = Magic + 1; CC = Magic + 2.
+- **Order comment** – Comment chung cho mọi lệnh (ví dụ "EA Grid").
+
+### 2.2 AA (cài đặt)
 
 - **Enable AA** – Bật/tắt AA (Buy Stop + Sell Stop).
 - **Lot level 1** – Khối lượng cho bậc đầu tiên.
@@ -43,11 +50,6 @@ Các bậc cách đều. Không đặt lệnh tại đường cơ sở; bậc 1 
   2. **Balance sau khi đóng ≥ sàn** (vốn đầu phiên + tiền tiết kiệm đã khóa).
 - **Nếu pool không đủ đóng hết** lệnh âm xa nhất: EA **đóng một phần** (lot tỷ lệ với số $ có thể dùng). Nếu không đủ cho tối thiểu một phần (min lot) thì đợi pool tăng rồi đóng sau.
 - Pool = **lệnh đóng TP** (AA+BB+CC) trong phiên trừ % tiết kiệm. Chỉ trong phiên; giá phải cách đường cơ sở **5 bậc**; cooldown sau khi đóng.
-
-### 2.2 Common (Magic & Comment)
-
-- **Magic Number** – AA dùng magic này; BB = Magic + 1; CC = Magic + 2.
-- **Order comment** – Comment chung cho mọi lệnh (ví dụ "EA Grid").
 
 ### 2.3 BB (cài đặt)
 
