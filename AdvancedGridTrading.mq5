@@ -16,7 +16,7 @@ enum ENUM_LOT_SCALE { LOT_FIXED = 0, LOT_GEOMETRIC = 2 };
 //+------------------------------------------------------------------+
 input group "=== 1. GRID ==="
 input double GridDistancePips = 2000.0;         // Grid distance (pips)
-input int MaxGridLevels = 15;                   // Max grid levels per side (above/below base line)
+input int MaxGridLevels = 25;                   // Max grid levels per side (above/below base line)
 
 //+------------------------------------------------------------------+
 //| 2. ORDERS                                                          |
@@ -27,7 +27,7 @@ input group "--- 2.1 AA (settings) ---"
 input bool EnableAA = true;                     // Enable AA (Buy Stop + Sell Stop)
 input double LotSizeAA = 0.01;                  // AA: Lot size level 1
 input ENUM_LOT_SCALE AALotScale = LOT_GEOMETRIC; // AA: Fixed / Geometric
-input double LotMultAA = 1.5;                   // AA: Lot multiplier for level 2+ (Geometric)
+input double LotMultAA = 1.3;                   // AA: Lot multiplier for level 2+ (Geometric)
 input double MaxLotAA = 2.0;                    // AA: Max lot per order (0=no limit)
 input double TakeProfitPipsAA = 0.0;           // AA: Take profit (pips; 0=off)
 input bool EnableBalanceAAByBB = true;         // AA: Balance when session TP $ minus lock % is enough to cover the losing AA (pool + loss >= 0 and >= threshold)
@@ -42,7 +42,7 @@ input group "--- 2.3 BB (settings) ---"
 input bool EnableBB = true;                     // Enable BB (Buy Stop + Sell Stop)
 input double LotSizeBB = 0.05;                  // BB: Lot size level 1
 input ENUM_LOT_SCALE BBLotScale = LOT_GEOMETRIC; // BB: Fixed / Geometric
-input double LotMultBB = 1.3;                   // BB: Lot multiplier for level 2+ (Geometric)
+input double LotMultBB = 1.1;                   // BB: Lot multiplier for level 2+ (Geometric)
 input double MaxLotBB = 2.0;                    // BB: Max lot per order (0=no limit)
 input double TakeProfitPipsBB = 2000.0;         // BB: Take profit (pips; 0=off)
 input bool EnableBalanceBB = true;              // BB: Balance when session TP $ minus lock % is enough to cover the losing BB (pool + loss >= 0 and >= threshold)
