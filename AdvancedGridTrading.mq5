@@ -23,7 +23,11 @@ input int MaxGridLevels = 30;                   // Max grid levels per side (abo
 //+------------------------------------------------------------------+
 input group "=== 2. ORDERS ==="
 
-input group "--- 2.1 AA (settings) ---"
+input group "--- 2.1 Common (Magic & Comment) ---"
+input int MagicNumber = 123456;                // Magic Number (AA=this, BB=this+1, CC=this+2)
+input string CommentOrder = "EA Grid";          // Order comment (same for all)
+
+input group "--- 2.2 AA (settings) ---"
 input bool EnableAA = true;                     // Enable AA (Buy Stop + Sell Stop)
 input double LotSizeAA = 0.01;                  // AA: Lot size level 1
 input ENUM_LOT_SCALE AALotScale = LOT_GEOMETRIC; // AA: Fixed / Geometric
@@ -34,10 +38,6 @@ input bool EnableBalanceAAByBB = true;         // AA: Balance when session TP $ 
 input double BalanceAAByBBThresholdUSD = 20.0;  // AA: Threshold USD. Close that AA when (pool + 1 AA loss) >= this value and >= 0
 input int BalanceAAByBBCooldownSec = 300;     // AA: Cooldown (seconds) after closing; 0=none. Price must be 5 levels from base
 
-input group "--- 2.2 Common (Magic & Comment) ---"
-input int MagicNumber = 123456;                // Magic Number (AA=this, BB=this+1)
-input string CommentOrder = "EA Grid";          // Order comment (same for all)
-
 input group "--- 2.3 BB (settings) ---"
 input bool EnableBB = true;                     // Enable BB (Buy Stop + Sell Stop)
 input double LotSizeBB = 0.05;                  // BB: Lot size level 1
@@ -46,7 +46,7 @@ input double LotMultBB = 1.1;                   // BB: Lot multiplier for level 
 input double MaxLotBB = 2.0;                    // BB: Max lot per order (0=no limit)
 input double TakeProfitPipsBB = 2000.0;         // BB: Take profit (pips; 0=off)
 input bool EnableBalanceBB = true;              // BB: Balance when session TP $ minus lock % is enough to cover the losing BB (pool + loss >= 0 and >= threshold)
-input double BalanceBBThresholdUSD = 20.0;      // BB: Threshold USD. Close BB when (pool + 1 BB loss) >= this and >= 0. Least negative first
+input double BalanceBBThresholdUSD = 20.0;      // BB: Threshold USD. Close BB when (pool + 1 BB loss) >= this and >= 0
 input int BalanceBBCooldownSec = 300;           // BB: Cooldown (seconds) after closing BB loser; 0=none
 
 input group "--- 2.4 CC (settings) ---"
