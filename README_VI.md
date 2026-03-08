@@ -37,9 +37,10 @@ Các bậc cách đều. Không đặt lệnh tại đường cơ sở; bậc 1 
 
 **Cân bằng AA (bởi pool lệnh đóng TP)**
 
-- Đóng **một lệnh AA đang lỗ** (phía ngược) khi:
+- Ưu tiên **đóng lệnh AA đang lỗ xa đường gốc trước** (một lệnh mỗi lần). Đóng **một lệnh AA đang lỗ** (phía ngược) khi:
   1. **(Pool + lỗ AA đó) ≥ ngưỡng** (USD) và **≥ 0** (pool đủ bù lỗ).
   2. **Balance sau khi đóng ≥ sàn** (vốn đầu phiên + tiền tiết kiệm đã khóa).
+- **Nếu pool không đủ đóng hết** lệnh âm xa nhất: EA **đóng một phần** (lot tỷ lệ với số $ có thể dùng). Nếu không đủ cho tối thiểu một phần (min lot) thì đợi pool tăng rồi đóng sau.
 - Pool = **lệnh đóng TP** (AA+BB+CC) trong phiên trừ % tiết kiệm. Chỉ trong phiên; giá phải cách đường cơ sở **5 bậc**; cooldown sau khi đóng.
 
 ### 2.2 Common (Magic & Comment)
@@ -53,7 +54,7 @@ Các bậc cách đều. Không đặt lệnh tại đường cơ sở; bậc 1 
 
 **Cân bằng BB (bởi pool lệnh đóng TP)**
 
-- Đóng **lệnh BB đang lỗ** (phía ngược) khi (pool + lỗ đó) ≥ ngưỡng và ≥ 0, và **balance sau khi đóng ≥ sàn**. Ưu tiên đóng lệnh âm ít nhất trước. Pool chung (TP đóng − lock %). Chỉ trong phiên; giá cách đường cơ sở **5 bậc**; cooldown.
+- Đóng **lệnh BB đang lỗ** (phía ngược) khi (pool + lỗ đó) ≥ ngưỡng và ≥ 0, và **balance sau khi đóng ≥ sàn**. Ưu tiên **đóng lệnh âm xa đường gốc trước**. Nếu pool không đủ đóng hết lệnh xa nhất thì **đóng một phần** (lot tỷ lệ); không đủ min lot thì đợi pool tăng. Pool chung (TP đóng − lock %). Chỉ trong phiên; giá cách đường cơ sở **5 bậc**; cooldown.
 
 ### 2.4 CC (cài đặt)
 
@@ -61,7 +62,7 @@ Các bậc cách đều. Không đặt lệnh tại đường cơ sở; bậc 1 
 
 **Cân bằng CC (bởi pool lệnh đóng TP)**
 
-- Đóng **lệnh CC đang lỗ** (phía ngược) khi (pool + lỗ đó) ≥ ngưỡng và ≥ 0, và **balance sau khi đóng ≥ sàn**. Ưu tiên lỗ ít trước. Cùng pool chung. Chỉ trong phiên; cooldown.
+- Đóng **lệnh CC đang lỗ** (phía ngược) khi (pool + lỗ đó) ≥ ngưỡng và ≥ 0, và **balance sau khi đóng ≥ sàn**. Ưu tiên **đóng lệnh âm xa đường gốc trước**. Nếu pool không đủ đóng hết lệnh xa nhất thì **đóng một phần** (lot tỷ lệ); không đủ min lot thì đợi pool tăng. Cùng pool chung. Chỉ trong phiên; cooldown.
 
 ---
 
@@ -124,8 +125,9 @@ Khi bật:
 - **Chỉ lệnh đóng bởi TP** (DEAL_REASON_TP) mới tính vào pool cân bằng. Đóng bởi SL / cắt tay / stop out **không** cộng pool.
 - **Pool** = (AA + BB + CC) đóng TP trong phiên, trừ lock % trên mỗi lệnh đóng TP có lãi. Một pool chung cho cân bằng AA, BB, CC.
 - **Quy tắc cân bằng:** Chỉ đóng lệnh lỗ khi:
-  1. **(Pool + lỗ đó) ≥ ngưỡng** và **≥ 0** (số $ lệnh đạt TP − % tiền tiết kiệm trong phiên > lệnh âm cần cân bằng).
+  1. **(Pool + lỗ đó) ≥ ngưỡng** và **≥ 0** (số $ lệnh đạt TP − % tiền tiết kiệm trong phiên đủ bù lỗ).
   2. **Balance sau khi đóng ≥ vốn đầu phiên + tiền tiết kiệm đã khóa** (sàn).
+- **Thứ tự đóng:** Ưu tiên **lệnh âm xa đường gốc trước**. Nếu pool không đủ đóng hết lệnh đó thì đóng **một phần** (lot theo tỷ lệ $); nếu không đủ min lot thì đợi pool tăng.
 - **Pool còn lại** giảm khi đóng từng lệnh lỗ (cùng tick: AA rồi BB rồi CC dùng chung pool còn lại).
 - **P/L lệnh đang mở** = Profit + Swap. Chỉ lệnh mở từ đầu phiên trở đi mới tính cho cân bằng và gồng lãi.
 
@@ -139,4 +141,4 @@ Khi bật:
 
 ## Phiên bản
 
-2.01 – Advanced Grid Trading EA (Pro). AA, BB, CC; chỉ lệnh đóng TP cho pool; pool chung; sàn vốn = đầu phiên + tiền tiết kiệm; khóa lãi; scale theo vốn; cân bằng và gồng lãi theo phiên.
+2.01 – Advanced Grid Trading EA (Pro). AA, BB, CC; chỉ lệnh đóng TP cho pool; pool chung; sàn vốn = đầu phiên + tiền tiết kiệm; khóa lãi; scale theo vốn; cân bằng (ưu tiên lệnh âm xa đường gốc, đóng một phần nếu pool không đủ) và gồng lãi theo phiên.
