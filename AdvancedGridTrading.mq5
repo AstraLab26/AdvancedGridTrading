@@ -25,17 +25,14 @@ input group "=== 2. ORDERS ==="
 
 input group "--- 2.1 AA (settings) ---"
 input bool EnableAA = true;                     // Enable AA (Buy Stop + Sell Stop)
-input double LotSizeAA = 0.01;                  // AA: lot level 1 (fixed)
+input double LotSizeAA = 0.01;                  // AA: Lot size level 1
 input ENUM_LOT_SCALE AALotScale = LOT_GEOMETRIC; // AA: Fixed / Geometric
-input double LotMultAA = 1.5;                   // AA: lot multiplier for level 2+ (Geometric)
-input double MaxLotAA = 2.0;                    // AA: max lot (0=no limit; e.g. 1=max 1 lot per order)
-input double TakeProfitPipsAA = 0.0;           // AA: Take profit (pips, 0=off)
-input bool EnableBalanceAA = false;             // AA: Auto balance - close 1 pair (1 loss + 1 profit) when sum P/L >= threshold
-input double BalanceAAThresholdUSD = 5.0;      // AA: Pair (loss opposite side + profit price side): close both when sum >= this (USD). Lot can differ.
-input int BalanceAACooldownSec = 300;          // AA: Cooldown (seconds) after closing a pair; 0 = no cooldown. Price must be 5 levels from base.
-input bool EnableBalanceAAByBB = true;         // AA: Balance by BB - close 1 losing AA when (BB closed + that AA loss) >= threshold (session only)
-input double BalanceAAByBBThresholdUSD = 20.0;  // AA by BB: (BB closed P/L + 1 AA open loss opposite side) >= this (USD), close that AA
-input int BalanceAAByBBCooldownSec = 300;     // AA by BB: Cooldown (seconds) after closing; 0 = no cooldown. Price 5 levels from base.
+input double LotMultAA = 1.5;                   // AA: Lot multiplier for level 2+ (Geometric)
+input double MaxLotAA = 2.0;                    // AA: Max lot per order (0=no limit)
+input double TakeProfitPipsAA = 0.0;           // AA: Take profit (pips; 0=off)
+input bool EnableBalanceAAByBB = true;         // AA: Balance when session TP $ minus lock % is enough to cover the losing AA (pool + loss >= 0 and >= threshold)
+input double BalanceAAByBBThresholdUSD = 20.0;  // AA: Threshold USD. Close that AA when (pool + 1 AA loss) >= this value and >= 0
+input int BalanceAAByBBCooldownSec = 300;     // AA: Cooldown (seconds) after closing; 0=none. Price must be 5 levels from base
 
 input group "--- 2.2 Common (Magic & Comment) ---"
 input int MagicNumber = 123456;                // Magic Number (AA=this, BB=this+1)
@@ -43,25 +40,25 @@ input string CommentOrder = "EA Grid";          // Order comment (same for all)
 
 input group "--- 2.3 BB (settings) ---"
 input bool EnableBB = true;                     // Enable BB (Buy Stop + Sell Stop)
-input double LotSizeBB = 0.05;                  // BB: lot level 1 (fixed)
+input double LotSizeBB = 0.05;                  // BB: Lot size level 1
 input ENUM_LOT_SCALE BBLotScale = LOT_GEOMETRIC; // BB: Fixed / Geometric
-input double LotMultBB = 1.3;                   // BB: lot multiplier for level 2+ (Geometric)
-input double MaxLotBB = 2.0;                    // BB: max lot (0=no limit; e.g. 1=max 1 lot per order)
-input double TakeProfitPipsBB = 2000.0;         // BB: Take profit (pips, 0=off)
-input bool EnableBalanceBB = true;              // BB: Auto balance - close 1 losing BB when (closed + that position P/L) >= threshold
-input double BalanceBBThresholdUSD = 20.0;      // BB: (closed + 1 losing) >= this (USD) close that one. Multiple: close least negative first. Session only.
-input int BalanceBBCooldownSec = 300;           // BB: Cooldown (seconds) after closing losing BB; 0 = no cooldown. Avoid closing repeatedly when price sideways.
+input double LotMultBB = 1.3;                   // BB: Lot multiplier for level 2+ (Geometric)
+input double MaxLotBB = 2.0;                    // BB: Max lot per order (0=no limit)
+input double TakeProfitPipsBB = 2000.0;         // BB: Take profit (pips; 0=off)
+input bool EnableBalanceBB = true;              // BB: Balance when session TP $ minus lock % is enough to cover the losing BB (pool + loss >= 0 and >= threshold)
+input double BalanceBBThresholdUSD = 20.0;      // BB: Threshold USD. Close BB when (pool + 1 BB loss) >= this and >= 0. Least negative first
+input int BalanceBBCooldownSec = 300;           // BB: Cooldown (seconds) after closing BB loser; 0=none
 
 input group "--- 2.4 CC (settings) ---"
-input bool EnableCC = true;                      // Enable CC (Buy Stop + Sell Stop), same logic as BB, separate params
-input double LotSizeCC = 0.05;                   // CC: lot level 1 (fixed)
+input bool EnableCC = true;                      // Enable CC (Buy Stop + Sell Stop)
+input double LotSizeCC = 0.05;                   // CC: Lot size level 1
 input ENUM_LOT_SCALE CCLotScale = LOT_FIXED;     // CC: Fixed / Geometric
-input double LotMultCC = 1.5;                    // CC: lot multiplier for level 2+ (Geometric)
-input double MaxLotCC = 2.0;                     // CC: max lot (0=no limit)
-input double TakeProfitPipsCC = 2000.0;          // CC: Take profit (pips, 0=off)
-input bool EnableBalanceCC = true;               // CC: Auto balance - close 1 losing CC when (closed + that position P/L) >= threshold
-input double BalanceCCThresholdUSD = 20.0;       // CC: (closed + 1 losing) >= this (USD) close that one. Session only.
-input int BalanceCCCooldownSec = 300;            // CC: Cooldown (seconds) after closing losing CC; 0 = no cooldown.
+input double LotMultCC = 1.5;                    // CC: Lot multiplier for level 2+ (Geometric)
+input double MaxLotCC = 2.0;                     // CC: Max lot per order (0=no limit)
+input double TakeProfitPipsCC = 2000.0;          // CC: Take profit (pips; 0=off)
+input bool EnableBalanceCC = true;               // CC: Balance when session TP $ minus lock % is enough to cover the losing CC (pool + loss >= 0 and >= threshold)
+input double BalanceCCThresholdUSD = 20.0;       // CC: Threshold USD. Close CC when (pool + 1 CC loss) >= this value and >= 0
+input int BalanceCCCooldownSec = 300;            // CC: Cooldown (seconds) after closing CC loser; 0=none
 
 //+------------------------------------------------------------------+
 //| 3. SESSION: Trailing profit (open orders only)                    |
@@ -72,11 +69,6 @@ input double TrailingThresholdUSD = 200.0;     // Start trailing when open profi
 input double TrailingLockStepPct = 15.0;       // Lock: close all when profit drops this % from peak
 input double GongLaiPips = 1500.0;             // Pips: SL distance from price (Buy A / Sell A)
 input double GongLaiStepPips = 500.0;           // Pips: trailing step (update every step)
-
-input group "=== 3B. SESSION: Balance orders (reset EA by grid levels) ==="
-input bool EnableBalanceResetByOpenClosed = false;  // Enable: reset EA when enough levels have open orders and session total >= threshold
-input int BalanceResetMinLevelsWithPosition = 12;   // Min grid levels with open order (current session) to trigger
-input double BalanceResetSessionThresholdUSD = 100.0; // Session total (closed + open) >= this (USD) to reset
 
 //+------------------------------------------------------------------+
 //| 4. CAPITAL % SCALING                                               |
@@ -93,8 +85,8 @@ input group "=== 5. NOTIFICATIONS ==="
 input bool EnableResetNotification = true;     // Send notification when EA resets or stops
 
 input group "=== 6. LOCK PROFIT (Save %) ==="
-input bool EnableLockProfit = true;            // Lock profit: reserve X% of each profitable close; this amount is NOT counted in AA/BB/CC balance logic
-input double LockProfitPct = 25.0;             // Lock this % of profitable close (e.g. 25 = reserve 25 USD from 100 USD profit); 0-100
+input bool EnableLockProfit = true;            // Lock profit: reserve X% of each profitable TP close; reserved amount is not used for AA/BB/CC balance pool
+input double LockProfitPct = 25.0;             // Lock this % of each profitable close (e.g. 25 = reserve 25 USD from 100 USD profit); 0-100
 
 //--- Global variables
 CTrade trade;
@@ -103,12 +95,14 @@ int dgt;
 double basePrice;                               // Base price (base line)
 double gridLevels[];                            // Array of level prices (evenly spaced by GridDistancePips)
 double gridStep;                                // One grid step (price) = GridDistancePips, used for tolerance/snap
-double sessionClosedProfit = 0.0;               // Session closed P/L (after lock). Reset on EA reset. AA balance only when >= 0
-double sessionClosedProfitBB = 0.0;             // BB closed P/L in session (after lock). AA-by-BB and BB balance only when >= 0
-double sessionClosedProfitCC = 0.0;             // CC closed P/L in session (after lock). CC balance only when >= 0
+double sessionClosedProfit = 0.0;               // Session closed P/L total (AA+BB+CC đóng TP, sau lock). Reset on EA reset. Pool chung cho cân bằng AA/BB/CC.
+double sessionClosedProfitBB = 0.0;             // BB closed P/L in session (after lock). Dùng nội bộ khi cần.
+double sessionClosedProfitCC = 0.0;             // CC closed P/L in session (after lock). Dùng nội bộ khi cần.
+double sessionClosedProfitRemaining = 0.0;      // Pool còn lại trong tick (sau khi đóng lệnh lỗ AA/BB/CC). Mỗi tick = sessionClosedProfit.
 datetime lastResetTime = 0;                     // Last reset time (avoid double-count from orders just closed on reset)
 bool eaStoppedByTarget = false;                 // true = EA stopped placing new orders (Stop mode)
-double balanceGoc = 0.0;                       // Account balance when EA was attached (base, unchanged)
+double balanceGoc = 0.0;                       // Base capital for scaling (BaseCapitalUSD or balance at attach)
+double attachBalance = 0.0;                    // Vốn lúc EA khởi động: cập nhật mỗi lần EA khởi động hoặc reset (panel "Vốn ban đầu")
 double sessionMultiplier = 1.0;                // Lot and TP multiplier by % growth vs balanceGoc (1.0 = no change)
 double sessionPeakProfit = 0.0;                // Session profit peak (for trailing profit lock)
 bool gongLaiMode = false;                      // true = trailing threshold reached, pendings cancelled, only trail SL on open positions
@@ -123,12 +117,12 @@ double sessionTotalLotAtMaxLot = 0.0;         // Total open lot when that max si
 double globalMaxSingleLot = 0.0;              // Largest single lot since EA attach (not reset)
 double globalTotalLotAtMaxLot = 0.0;          // Total open lot at that time since EA attach (not reset)
 datetime sessionStartTime = 0;                // Phiên hiện tại: bắt đầu khi gắn EA hoặc EA reset. Chỉ tính P/L và lệnh từ thời điểm này.
+double sessionStartBalance = 0.0;             // Balance at session start (for info panel and session %)
 int MagicAA = 0;                              // AA orders magic (set in OnInit)
 int MagicBB = 0;                              // BB orders magic (MagicNumber+1)
 int MagicCC = 0;                              // CC orders magic (MagicNumber+2)
 datetime lastBalanceBBCloseTime = 0;          // Last time we closed losing BB (for cooldown)
 datetime lastBalanceCCCloseTime = 0;          // Last time we closed losing CC (for cooldown)
-datetime lastBalanceAACloseTime = 0;         // Last time we closed an AA pair (for cooldown)
 datetime lastBalanceAAByBBCloseTime = 0;     // Last time we closed AA by BB balance (for cooldown)
 double lockedProfitReserve = 0.0;            // Locked profit (X% of each profitable close); excluded from AA/BB/CC balance and trailing
 
@@ -167,11 +161,11 @@ int OnInit()
    sessionClosedProfitCC = 0.0;
    lastBalanceBBCloseTime = 0;
    lastBalanceCCCloseTime = 0;
-   lastBalanceAACloseTime = 0;
    lastBalanceAAByBBCloseTime = 0;
    lastResetTime = 0;
    eaStoppedByTarget = false;
    balanceGoc = (BaseCapitalUSD > 0) ? BaseCapitalUSD : AccountInfoDouble(ACCOUNT_BALANCE);
+   attachBalance = AccountInfoDouble(ACCOUNT_BALANCE);   // Vốn ban đầu: balance when EA is first added (for panel only)
    sessionMultiplier = 1.0;
    UpdateSessionMultiplierFromAccountGrowth();
    sessionPeakProfit = 0.0;
@@ -194,10 +188,6 @@ int OnInit()
    Print("Symbol: ", _Symbol, " | Base: ", basePrice, " | Grid: ", GridDistancePips, " pips | Levels: ", ArraySize(gridLevels));
    if(EnableTrailingTotalProfit)
       Print("Trailing: open orders only. Start when profit >= ", TrailingThresholdUSD, " USD, lock when down ", TrailingLockStepPct, "% from peak.");
-   if(EnableBalanceResetByOpenClosed)
-      Print("Balance orders: reset when levels with open >= ", BalanceResetMinLevelsWithPosition, " and session total >= ", BalanceResetSessionThresholdUSD, " USD");
-   if(EnableAA && EnableBalanceAA)
-      Print("Balance AA: close 1 pair (1 loss + 1 profit) when sum >= ", BalanceAAThresholdUSD, " USD. Lot can differ. Price 5 levels from base. Cooldown ", BalanceAACooldownSec, "s.");
    if(EnableAA && EnableBalanceAAByBB)
       Print("Balance AA by BB: close 1 losing AA when (BB closed + that AA loss) >= ", BalanceAAByBBThresholdUSD, " USD. Session only. Price 5 levels. Cooldown ", BalanceAAByBBCooldownSec, "s.");
    if(EnableBB && EnableBalanceBB)
@@ -282,7 +272,6 @@ void OnTick()
             sessionClosedProfitCC = 0.0;
             lastBalanceBBCloseTime = 0;
             lastBalanceCCCloseTime = 0;
-            lastBalanceAACloseTime = 0;
             lastBalanceAAByBBCloseTime = 0;
          sessionPeakProfit = 0.0;
             gongLaiMode = false;
@@ -294,68 +283,6 @@ void OnTick()
             if(EnableResetNotification) { SendResetNotification("Trailing profit"); double b = AccountInfoDouble(ACCOUNT_BALANCE); sessionPeakBalance = b; sessionMinBalance = b; sessionMaxSingleLot = 0; sessionTotalLotAtMaxLot = 0; }
             return;
          }
-      }
-   }
-   
-   // Cân bằng lệnh (theo bậc lưới): reset EA khi số bậc lưới có lệnh mở >= X và tổng phiên hiện tại >= Y USD
-   if(EnableBalanceResetByOpenClosed && BalanceResetMinLevelsWithPosition > 0)
-   {
-      double tolerance = gridStep * 0.5;
-      double openFloatingSession = 0.0;
-      int nLevels = ArraySize(gridLevels);
-      bool levelHasPosition[];
-      ArrayResize(levelHasPosition, nLevels);
-      for(int L = 0; L < nLevels; L++)
-         levelHasPosition[L] = false;
-      for(int i = 0; i < PositionsTotal(); i++)
-      {
-         ulong ticket = PositionGetTicket(i);
-         if(ticket <= 0 || !IsOurMagic(PositionGetInteger(POSITION_MAGIC)) || PositionGetString(POSITION_SYMBOL) != _Symbol)
-            continue;
-         if(sessionStartTime > 0 && (datetime)PositionGetInteger(POSITION_TIME) < sessionStartTime)
-            continue;
-         openFloatingSession += PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
-         double posPrice = PositionGetDouble(POSITION_PRICE_OPEN);
-         for(int L = 0; L < nLevels; L++)
-            if(MathAbs(posPrice - gridLevels[L]) < tolerance)
-            {
-               levelHasPosition[L] = true;
-               break;
-            }
-      }
-      int levelsWithOpenPosition = 0;
-      for(int L = 0; L < nLevels; L++)
-         if(levelHasPosition[L]) levelsWithOpenPosition++;
-      double totalSessionUSD = sessionClosedProfit + openFloatingSession;
-      if(levelsWithOpenPosition >= BalanceResetMinLevelsWithPosition && totalSessionUSD >= BalanceResetSessionThresholdUSD)
-      {
-         CloseAllPositionsAndOrders();
-         UpdateSessionMultiplierFromAccountGrowth();
-         lastResetTime = TimeCurrent();
-         sessionClosedProfit = 0.0;
-         sessionClosedProfitBB = 0.0;
-         sessionClosedProfitCC = 0.0;
-         lastBalanceBBCloseTime = 0;
-         lastBalanceCCCloseTime = 0;
-         lastBalanceAACloseTime = 0;
-         lastBalanceAAByBBCloseTime = 0;
-         sessionPeakProfit = 0.0;
-         gongLaiMode = false;
-         lastBuyTrailPrice = 0.0;
-         lastSellTrailPrice = 0.0;
-         basePrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-         InitializeGridLevels();
-         Print("Balance orders: levels with open = ", levelsWithOpenPosition, " (>= ", BalanceResetMinLevelsWithPosition, "), session total = ", totalSessionUSD, " USD (>= ", BalanceResetSessionThresholdUSD, "). Reset EA, new base = ", basePrice);
-         if(EnableResetNotification)
-         {
-            SendResetNotification("Balance orders (grid levels + session threshold)");
-            double b = AccountInfoDouble(ACCOUNT_BALANCE);
-            sessionPeakBalance = b;
-            sessionMinBalance = b;
-            sessionMaxSingleLot = 0;
-            sessionTotalLotAtMaxLot = 0;
-         }
-         return;
       }
    }
    
@@ -383,7 +310,6 @@ void OnTick()
          sessionClosedProfitCC = 0.0;
          lastBalanceBBCloseTime = 0;
          lastBalanceCCCloseTime = 0;
-         lastBalanceAACloseTime = 0;
          lastBalanceAAByBBCloseTime = 0;
       sessionPeakProfit = 0.0;
          basePrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
@@ -395,8 +321,8 @@ void OnTick()
          DoGongLaiTrailing();
    }
    
-   if(EnableAA && EnableBalanceAA)
-      DoBalanceAA();
+   // Pool chung AA+BB+CC đóng TP. Mỗi tick khởi tạo remaining = pool; mỗi lần đóng lệnh lỗ thì trừ remaining.
+   sessionClosedProfitRemaining = sessionClosedProfit;
    if(EnableAA && EnableBalanceAAByBB)
       DoBalanceAAByBB();
    if(EnableBB && EnableBalanceBB)
@@ -761,12 +687,15 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
       return;
    if(lastResetTime > 0 && dealTime >= lastResetTime && dealTime <= lastResetTime + 15)
       return;   // Tránh cộng trùng deal từ lệnh vừa đóng khi reset
+   // Chỉ tính lệnh đóng bởi TP (Take Profit). Lệnh đóng bởi SL / cắt tay / stop out không cộng vào pool cân bằng.
+   if(HistoryDealGetInteger(trans.deal, DEAL_REASON) != DEAL_REASON_TP)
+      return;
    
    // Closed deal P/L = profit + swap + commission
    double dealPnL = HistoryDealGetDouble(trans.deal, DEAL_PROFIT)
                   + HistoryDealGetDouble(trans.deal, DEAL_SWAP)
                   + HistoryDealGetDouble(trans.deal, DEAL_COMMISSION);
-   // In current session, when close is profitable: priority = lock % first (cất tiền); remaining $ only is available for balance (chi cho cân bằng lệnh)
+   // Pool phiên = số $ lệnh đạt TP - % tiền tiết kiệm. Cân bằng AA/BB/CC chỉ khi pool > lệnh âm cần cân bằng (pool + loss >= 0).
    if(EnableLockProfit && LockProfitPct > 0 && dealPnL > 0)
    {
       double pct = MathMin(100.0, MathMax(0.0, LockProfitPct));
@@ -775,9 +704,10 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
       dealPnL -= locked;
    }
    sessionClosedProfit += dealPnL;
-   if(HistoryDealGetInteger(trans.deal, DEAL_MAGIC) == MagicBB)
+   long dealMagic = HistoryDealGetInteger(trans.deal, DEAL_MAGIC);
+   if(dealMagic == MagicBB)
       sessionClosedProfitBB += dealPnL;
-   if(HistoryDealGetInteger(trans.deal, DEAL_MAGIC) == MagicCC)
+   if(dealMagic == MagicCC)
       sessionClosedProfitCC += dealPnL;
 }
 
@@ -939,6 +869,9 @@ void InitializeGridLevels()
 {
    // Phiên hiện tại = 0 và bắt đầu tính từ đây (gọi khi gắn EA hoặc EA reset tự động)
    sessionStartTime = TimeCurrent();
+   double bal = AccountInfoDouble(ACCOUNT_BALANCE);
+   sessionStartBalance = bal;
+   attachBalance = bal;   // Vốn lúc EA khởi động: cập nhật mỗi lần EA khởi động lại / reset
    gridStep = GridDistancePips * pnt * 10.0;   // One grid step (even)
    int totalLevels = MaxGridLevels * 2;
    
@@ -1032,122 +965,15 @@ void RemoveDuplicateOrdersAtLevel()
 }
 
 //+------------------------------------------------------------------+
-//| AA auto balance: pair 1 loss (opposite side) + 1 profit (price side). Close both when sum P/L >= threshold. Lot can differ. |
-//| Price above base: loss=Sell below, profit=Buy above. Price below base: loss=Buy above, profit=Sell below. Price must be 5 levels from base. |
-//+------------------------------------------------------------------+
-void DoBalanceAA()
-{
-   if(!EnableAA || !EnableBalanceAA || BalanceAAThresholdUSD <= 0.0)
-      return;
-   // Balance only when session has non-negative closed P/L (after lock): "available for balance" must be >= 0
-   if(sessionClosedProfit < 0)
-      return;
-   if(BalanceAACooldownSec > 0 && lastBalanceAACloseTime > 0 && (TimeCurrent() - lastBalanceAACloseTime) < BalanceAACooldownSec)
-      return;
-   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   bool priceAboveBase = (bid > basePrice);
-   int nLevels = ArraySize(gridLevels);
-   if(priceAboveBase)
-   {
-      if(nLevels < 5 || bid < gridLevels[4])
-         return;
-   }
-   else
-   {
-      if(nLevels <= MaxGridLevels + 4)
-         return;
-      if(bid > gridLevels[MaxGridLevels + 4])
-         return;
-   }
-   ulong lossTickets[];
-   double lossPls[];
-   ulong profitTickets[];
-   double profitPls[];
-   ArrayResize(lossTickets, 0);
-   ArrayResize(lossPls, 0);
-   ArrayResize(profitTickets, 0);
-   ArrayResize(profitPls, 0);
-   for(int i = 0; i < PositionsTotal(); i++)
-   {
-      ulong ticket = PositionGetTicket(i);
-      if(ticket <= 0) continue;
-      if(PositionGetInteger(POSITION_MAGIC) != MagicAA || PositionGetString(POSITION_SYMBOL) != _Symbol)
-         continue;
-      if(sessionStartTime > 0 && (datetime)PositionGetInteger(POSITION_TIME) < sessionStartTime)
-         continue;
-      double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
-      double pr = GetPositionPnL(ticket);   // profit + swap
-      bool isBuy = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY);
-      if(priceAboveBase)
-      {
-         if(!isBuy && openPrice < basePrice && pr < 0.0)
-         {
-            int n = ArraySize(lossTickets);
-            ArrayResize(lossTickets, n + 1); ArrayResize(lossPls, n + 1);
-            lossTickets[n] = ticket; lossPls[n] = pr;
-         }
-         else if(isBuy && openPrice > basePrice && pr > 0.0)
-         {
-            int n = ArraySize(profitTickets);
-            ArrayResize(profitTickets, n + 1); ArrayResize(profitPls, n + 1);
-            profitTickets[n] = ticket; profitPls[n] = pr;
-         }
-      }
-      else
-      {
-         if(isBuy && openPrice > basePrice && pr < 0.0)
-         {
-            int n = ArraySize(lossTickets);
-            ArrayResize(lossTickets, n + 1); ArrayResize(lossPls, n + 1);
-            lossTickets[n] = ticket; lossPls[n] = pr;
-         }
-         else if(!isBuy && openPrice < basePrice && pr > 0.0)
-         {
-            int n = ArraySize(profitTickets);
-            ArrayResize(profitTickets, n + 1); ArrayResize(profitPls, n + 1);
-            profitTickets[n] = ticket; profitPls[n] = pr;
-         }
-      }
-   }
-   int nLoss = ArraySize(lossTickets);
-   int nProfit = ArraySize(profitTickets);
-   if(nLoss == 0 || nProfit == 0) return;
-   // Sort loss by P/L descending (least negative first)
-   for(int i = 0; i < nLoss - 1; i++)
-      for(int j = i + 1; j < nLoss; j++)
-         if(lossPls[j] > lossPls[i])
-         {
-            double tp = lossPls[i]; lossPls[i] = lossPls[j]; lossPls[j] = tp;
-            ulong tt = lossTickets[i]; lossTickets[i] = lossTickets[j]; lossTickets[j] = tt;
-         }
-   for(int L = 0; L < nLoss; L++)
-   {
-      for(int P = 0; P < nProfit; P++)
-      {
-         double pairSum = lossPls[L] + profitPls[P];
-         // Only balance when >= threshold AND remaining session (after close) stays >= 0 (do not spend more than available)
-         if(pairSum >= BalanceAAThresholdUSD && sessionClosedProfit + pairSum >= 0)
-         {
-            trade.PositionClose(lossTickets[L]);
-            trade.PositionClose(profitTickets[P]);
-            lastBalanceAACloseTime = TimeCurrent();
-            Print("Balance AA: closed pair (loss ", lossPls[L], " + profit ", profitPls[P], " = ", lossPls[L] + profitPls[P], " USD >= ", BalanceAAThresholdUSD, "). Cooldown ", BalanceAACooldownSec, "s.");
-            return;
-         }
-      }
-   }
-}
-
-//+------------------------------------------------------------------+
-//| Balance AA by BB: (BB closed P/L in session) + (1 AA open loss opposite side) >= threshold -> close that AA. |
-//| Ưu tiên lệnh âm ít nhất (least negative first). Session only, price 5 levels, cooldown. |
+//| Balance AA: close 1 losing AA when (1) pool covers loss and >= threshold, (2) balance after close >= floor. |
+//| Pool = session TP $ - lock %. Floor = sessionStartBalance + lockedProfitReserve (capital must not drop below this). Least negative first. |
 //+------------------------------------------------------------------+
 void DoBalanceAAByBB()
 {
    if(!EnableAA || !EnableBalanceAAByBB || BalanceAAByBBThresholdUSD <= 0.0)
       return;
-   // Balance only when BB session closed P/L (after lock) is >= 0; otherwise do not spend on balance
-   if(sessionClosedProfitBB < 0)
+   // Chỉ cân bằng khi: (số $ lệnh đạt TP - % tiền tiết kiệm trong phiên) > lệnh âm cần cân bằng <=> (pool + loss) >= 0 và >= ngưỡng
+   if(sessionClosedProfitRemaining < 0)
       return;
    if(BalanceAAByBBCooldownSec > 0 && lastBalanceAAByBBCloseTime > 0 && (TimeCurrent() - lastBalanceAAByBBCloseTime) < BalanceAAByBBCooldownSec)
       return;
@@ -1199,30 +1025,33 @@ void DoBalanceAAByBB()
             double tp = pls[i]; pls[i] = pls[j]; pls[j] = tp;
             ulong tt = tickets[i]; tickets[i] = tickets[j]; tickets[j] = tt;
          }
+   double balanceFloor = sessionStartBalance + lockedProfitReserve;  // Vốn tối thiểu: đầu phiên + tiền tiết kiệm (không được giảm thấp hơn)
+   double currentBalance = AccountInfoDouble(ACCOUNT_BALANCE);
    for(int k = 0; k < cnt; k++)
    {
-      double afterClose = sessionClosedProfitBB + pls[k];
-      // Only balance when >= threshold AND remaining (after close) >= 0: do not close if loss > available
-      if(afterClose >= BalanceAAByBBThresholdUSD && afterClose >= 0)
+      double afterClose = sessionClosedProfitRemaining + pls[k];  // Pool còn lại sau khi "trừ" lỗ này
+      double balanceAfterClose = currentBalance + pls[k];         // Balance sau khi đóng lệnh này
+      if(afterClose >= BalanceAAByBBThresholdUSD && afterClose >= 0 && balanceAfterClose >= balanceFloor)
       {
          trade.PositionClose(tickets[k]);
+         sessionClosedProfitRemaining += pls[k];
          lastBalanceAAByBBCloseTime = TimeCurrent();
-         Print("Balance AA by BB: closed 1 losing AA (BB closed ", sessionClosedProfitBB, " + AA loss ", pls[k], " = ", afterClose, " USD >= ", BalanceAAByBBThresholdUSD, "). Cooldown ", BalanceAAByBBCooldownSec, "s.");
+         Print("Balance AA: closed 1 losing AA. Pool remaining ", sessionClosedProfitRemaining, ", balance after close ", balanceAfterClose, " >= floor ", balanceFloor, ". Cooldown ", BalanceAAByBBCooldownSec, "s.");
          return;
       }
    }
 }
 
 //+------------------------------------------------------------------+
-//| BB auto balance: (closed + 1 losing P/L) >= threshold -> close that one. Least negative first. |
-//| Example: closed=23, loss1=-12, loss2=-15 => close loss1 (23-12=11>=10). Then wait for condition again to close loss2. Session only. |
+//| Balance BB: close losing BB when (1) pool covers loss and >= threshold, (2) balance after close >= floor. |
+//| Floor = sessionStartBalance + lockedProfitReserve. Total closed loss in session <= pool; balance never below floor. Least negative first. |
 //+------------------------------------------------------------------+
 void DoBalanceBB()
 {
    if(!EnableBB || !EnableBalanceBB || BalanceBBThresholdUSD <= 0.0)
       return;
-   // Balance only when BB session closed P/L (after lock) is >= 0; otherwise do not spend on balance
-   if(sessionClosedProfitBB < 0)
+   // Chỉ cân bằng khi: (số $ lệnh đạt TP - % tiền tiết kiệm trong phiên) > lệnh âm cần cân bằng <=> (pool + loss) >= 0 và >= ngưỡng
+   if(sessionClosedProfitRemaining < 0)
       return;
    if(BalanceBBCooldownSec > 0 && lastBalanceBBCloseTime > 0 && (TimeCurrent() - lastBalanceBBCloseTime) < BalanceBBCooldownSec)
       return;
@@ -1276,35 +1105,40 @@ void DoBalanceBB()
             double tp = pls[i]; pls[i] = pls[j]; pls[j] = tp;
             ulong tt = tickets[i]; tickets[i] = tickets[j]; tickets[j] = tt;
          }
-   double runningClosed = sessionClosedProfitBB;
+   double balanceFloor = sessionStartBalance + lockedProfitReserve;  // Vốn tối thiểu: đầu phiên + tiền tiết kiệm
+   double balanceNow = AccountInfoDouble(ACCOUNT_BALANCE);
+   double runningClosed = sessionClosedProfitRemaining;
    int closedCount = 0;
    for(int k = 0; k < cnt; k++)
    {
       double afterClose = runningClosed + pls[k];
-      // Only close when >= threshold AND remaining >= 0: if loss > available (e.g. 300 > 270) do not balance
-      if(afterClose >= BalanceBBThresholdUSD && afterClose >= 0)
+      double balanceAfterClose = balanceNow + pls[k];
+      if(afterClose >= BalanceBBThresholdUSD && afterClose >= 0 && balanceAfterClose >= balanceFloor)
       {
          trade.PositionClose(tickets[k]);
          runningClosed += pls[k];
+         balanceNow = balanceAfterClose;  // Cập nhật balance cho lệnh tiếp theo
          closedCount++;
       }
    }
    if(closedCount > 0)
    {
+      sessionClosedProfitRemaining = runningClosed;
       lastBalanceBBCloseTime = TimeCurrent();
-      Print("Balance BB: closed ", closedCount, " losing BB (least negative first). Cooldown ", BalanceBBCooldownSec, "s. Session closed ", sessionClosedProfitBB, " -> running after close ", runningClosed, " USD, threshold ", BalanceBBThresholdUSD);
+      Print("Balance BB: closed ", closedCount, " losing BB. Pool remaining ", runningClosed, ", balance floor ", balanceFloor, ". Cooldown ", BalanceBBCooldownSec, "s.");
    }
 }
 
 //+------------------------------------------------------------------+
-//| CC auto balance: (closed + 1 losing P/L) >= threshold -> close that one. Least negative first. Session only, price 5 levels, cooldown. |
+//| Balance CC: close losing CC when (1) pool covers loss and >= threshold, (2) balance after close >= floor. |
+//| Floor = sessionStartBalance + lockedProfitReserve. Same rule as BB. Least negative first. |
 //+------------------------------------------------------------------+
 void DoBalanceCC()
 {
    if(!EnableCC || !EnableBalanceCC || BalanceCCThresholdUSD <= 0.0)
       return;
-   // Balance only when CC session closed P/L (after lock) is >= 0; otherwise do not spend on balance
-   if(sessionClosedProfitCC < 0)
+   // Chỉ cân bằng khi: (số $ lệnh đạt TP - % tiền tiết kiệm trong phiên) > lệnh âm cần cân bằng <=> (pool + loss) >= 0 và >= ngưỡng
+   if(sessionClosedProfitRemaining < 0)
       return;
    if(BalanceCCCooldownSec > 0 && lastBalanceCCCloseTime > 0 && (TimeCurrent() - lastBalanceCCCloseTime) < BalanceCCCooldownSec)
       return;
@@ -1355,23 +1189,27 @@ void DoBalanceCC()
             double tp = pls[i]; pls[i] = pls[j]; pls[j] = tp;
             ulong tt = tickets[i]; tickets[i] = tickets[j]; tickets[j] = tt;
          }
-   double runningClosed = sessionClosedProfitCC;
+   double balanceFloor = sessionStartBalance + lockedProfitReserve;  // Vốn tối thiểu: đầu phiên + tiền tiết kiệm
+   double balanceNow = AccountInfoDouble(ACCOUNT_BALANCE);
+   double runningClosed = sessionClosedProfitRemaining;
    int closedCount = 0;
    for(int k = 0; k < cnt; k++)
    {
       double afterClose = runningClosed + pls[k];
-      // Only close when >= threshold AND remaining >= 0: if loss > available do not balance
-      if(afterClose >= BalanceCCThresholdUSD && afterClose >= 0)
+      double balanceAfterClose = balanceNow + pls[k];
+      if(afterClose >= BalanceCCThresholdUSD && afterClose >= 0 && balanceAfterClose >= balanceFloor)
       {
          trade.PositionClose(tickets[k]);
          runningClosed += pls[k];
+         balanceNow = balanceAfterClose;
          closedCount++;
       }
    }
    if(closedCount > 0)
    {
+      sessionClosedProfitRemaining = runningClosed;
       lastBalanceCCCloseTime = TimeCurrent();
-      Print("Balance CC: closed ", closedCount, " losing CC (least negative first). Cooldown ", BalanceCCCooldownSec, "s. Session closed ", sessionClosedProfitCC, " -> running ", runningClosed, " USD, threshold ", BalanceCCThresholdUSD);
+      Print("Balance CC: closed ", closedCount, " losing CC. Pool remaining ", runningClosed, ", balance floor ", balanceFloor, ". Cooldown ", BalanceCCCooldownSec, "s.");
    }
 }
 
