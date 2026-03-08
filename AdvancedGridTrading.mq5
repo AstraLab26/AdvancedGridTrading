@@ -135,6 +135,12 @@ bool IsOurMagic(long magic)
 }
 
 //+------------------------------------------------------------------+
+//| Swap helpers for sort by distance                                |
+//+------------------------------------------------------------------+
+void SwapDouble(double &a, double &b) { double t = a; a = b; b = t; }
+void SwapULong(ulong &a, ulong &b) { ulong t = a; a = b; b = t; }
+
+//+------------------------------------------------------------------+
 //| Position P/L = profit + swap (phí qua đêm). Commission (hoa hồng) chỉ có khi lệnh đóng (trong DEAL). |
 //+------------------------------------------------------------------+
 double GetPositionPnL(ulong ticket)
@@ -965,14 +971,13 @@ void RemoveDuplicateOrdersAtLevel()
 }
 
 //+------------------------------------------------------------------+
-//| Balance AA: close 1 losing AA when (1) pool covers loss and >= threshold, (2) balance after close >= floor. |
-//| Pool = session TP $ - lock %. Floor = sessionStartBalance + lockedProfitReserve (capital must not drop below this). Least negative first. |
+//| Balance AA: đóng lệnh âm XA đường gốc trước. Nếu pool không đủ thì đóng 1 phần (partial close). |
+//| Pool = session TP $ - lock %. Floor = sessionStartBalance + lockedProfitReserve. |
 //+------------------------------------------------------------------+
 void DoBalanceAAByBB()
 {
    if(!EnableAA || !EnableBalanceAAByBB || BalanceAAByBBThresholdUSD <= 0.0)
       return;
-   // Chỉ cân bằng khi: (số $ lệnh đạt TP - % tiền tiết kiệm trong phiên) > lệnh âm cần cân bằng <=> (pool + loss) >= 0 và >= ngưỡng
    if(sessionClosedProfitRemaining < 0)
       return;
    if(BalanceAAByBBCooldownSec > 0 && lastBalanceAAByBBCloseTime > 0 && (TimeCurrent() - lastBalanceAAByBBCloseTime) < BalanceAAByBBCooldownSec)
@@ -993,9 +998,11 @@ void DoBalanceAAByBB()
          return;
    }
    ulong tickets[];
-   double pls[];
+   double pls[], vols[], openPrices[];
    ArrayResize(tickets, 0);
    ArrayResize(pls, 0);
+   ArrayResize(vols, 0);
+   ArrayResize(openPrices, 0);
    for(int i = 0; i < PositionsTotal(); i++)
    {
       ulong ticket = PositionGetTicket(i);
@@ -1005,77 +1012,102 @@ void DoBalanceAAByBB()
       if(sessionStartTime > 0 && (datetime)PositionGetInteger(POSITION_TIME) < sessionStartTime)
          continue;
       double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
-      double pr = GetPositionPnL(ticket);   // profit + swap
+      double pr = GetPositionPnL(ticket);
+      double vol = PositionGetDouble(POSITION_VOLUME);
       bool isBuy = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY);
       bool oppositeSide = priceAboveBase ? (!isBuy && openPrice < basePrice) : (isBuy && openPrice > basePrice);
       if(!oppositeSide || pr >= 0.0) continue;
       int n = ArraySize(tickets);
       ArrayResize(tickets, n + 1);
       ArrayResize(pls, n + 1);
+      ArrayResize(vols, n + 1);
+      ArrayResize(openPrices, n + 1);
       tickets[n] = ticket;
       pls[n] = pr;
+      vols[n] = vol;
+      openPrices[n] = openPrice;
    }
    int cnt = ArraySize(tickets);
    if(cnt == 0) return;
-   // Sắp xếp P/L giảm dần: âm ít nhất trước (e.g. -2 trước -10)
+   // Sắp xếp: xa đường gốc trước (distance = |openPrice - basePrice| giảm dần)
    for(int i = 0; i < cnt - 1; i++)
       for(int j = i + 1; j < cnt; j++)
-         if(pls[j] > pls[i])
-         {
-            double tp = pls[i]; pls[i] = pls[j]; pls[j] = tp;
-            ulong tt = tickets[i]; tickets[i] = tickets[j]; tickets[j] = tt;
-         }
-   double balanceFloor = sessionStartBalance + lockedProfitReserve;  // Vốn tối thiểu: đầu phiên + tiền tiết kiệm (không được giảm thấp hơn)
-   double currentBalance = AccountInfoDouble(ACCOUNT_BALANCE);
-   for(int k = 0; k < cnt; k++)
-   {
-      double afterClose = sessionClosedProfitRemaining + pls[k];  // Pool còn lại sau khi "trừ" lỗ này
-      double balanceAfterClose = currentBalance + pls[k];         // Balance sau khi đóng lệnh này
-      if(afterClose >= BalanceAAByBBThresholdUSD && afterClose >= 0 && balanceAfterClose >= balanceFloor)
       {
-         trade.PositionClose(tickets[k]);
-         sessionClosedProfitRemaining += pls[k];
-         lastBalanceAAByBBCloseTime = TimeCurrent();
-         Print("Balance AA: closed 1 losing AA. Pool remaining ", sessionClosedProfitRemaining, ", balance after close ", balanceAfterClose, " >= floor ", balanceFloor, ". Cooldown ", BalanceAAByBBCooldownSec, "s.");
-         return;
+         double di = MathAbs(openPrices[i] - basePrice);
+         double dj = MathAbs(openPrices[j] - basePrice);
+         if(dj > di)
+         {
+            SwapDouble(openPrices[i], openPrices[j]);
+            SwapDouble(pls[i], pls[j]);
+            SwapDouble(vols[i], vols[j]);
+            SwapULong(tickets[i], tickets[j]);
+         }
       }
+   double balanceFloor = sessionStartBalance + lockedProfitReserve;
+   double balanceNow = AccountInfoDouble(ACCOUNT_BALANCE);
+   double pool = sessionClosedProfitRemaining;
+   double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+   double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+   // Chỉ xử lý lệnh xa nhất (k=0)
+   int k = 0;
+   double afterClose = pool + pls[k];
+   double balanceAfterClose = balanceNow + pls[k];
+   if(afterClose >= BalanceAAByBBThresholdUSD && afterClose >= 0 && balanceAfterClose >= balanceFloor)
+   {
+      trade.PositionClose(tickets[k]);
+      sessionClosedProfitRemaining += pls[k];
+      lastBalanceAAByBBCloseTime = TimeCurrent();
+      Print("Balance AA: full close 1 losing AA (farthest from base). Pool remaining ", sessionClosedProfitRemaining, ". Cooldown ", BalanceAAByBBCooldownSec, "s.");
+      return;
+   }
+   // Pool không đủ đóng hết: đóng 1 phần (partial) tương ứng số $ cân bằng
+   double spendable = MathMin(pool, MathMin(balanceNow - balanceFloor, MathAbs(pls[k])));
+   if(spendable <= 0) return;
+   double volClose = vols[k] * (spendable / MathAbs(pls[k]));
+   volClose = MathFloor(volClose / lotStep) * lotStep;
+   if(volClose < minLot) return;  // Không đủ đóng phần nhỏ nhất -> đợi pool tăng
+   if(volClose >= vols[k]) { volClose = vols[k]; spendable = MathAbs(pls[k]); }
+   if(trade.PositionClosePartial(_Symbol, volClose, tickets[k]))
+   {
+      double realizedPnL = (volClose / vols[k]) * pls[k];
+      sessionClosedProfitRemaining += realizedPnL;
+      lastBalanceAAByBBCloseTime = TimeCurrent();
+      Print("Balance AA: partial close ", volClose, " of ", vols[k], " (farthest from base). Realized ", realizedPnL, " USD. Pool remaining ", sessionClosedProfitRemaining, ". Cooldown ", BalanceAAByBBCooldownSec, "s.");
    }
 }
 
 //+------------------------------------------------------------------+
-//| Balance BB: close losing BB when (1) pool covers loss and >= threshold, (2) balance after close >= floor. |
-//| Floor = sessionStartBalance + lockedProfitReserve. Total closed loss in session <= pool; balance never below floor. Least negative first. |
+//| Balance BB: đóng lệnh âm XA đường gốc trước; không đủ thì đóng 1 phần (partial). |
 //+------------------------------------------------------------------+
 void DoBalanceBB()
 {
    if(!EnableBB || !EnableBalanceBB || BalanceBBThresholdUSD <= 0.0)
       return;
-   // Chỉ cân bằng khi: (số $ lệnh đạt TP - % tiền tiết kiệm trong phiên) > lệnh âm cần cân bằng <=> (pool + loss) >= 0 và >= ngưỡng
    if(sessionClosedProfitRemaining < 0)
       return;
    if(BalanceBBCooldownSec > 0 && lastBalanceBBCloseTime > 0 && (TimeCurrent() - lastBalanceBBCloseTime) < BalanceBBCooldownSec)
       return;
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    bool priceAboveBase = (bid > basePrice);
-   // Giá phải cách đường gốc ít nhất 5 bậc lưới mới được đóng lệnh âm phía còn lại
    int nLevels = ArraySize(gridLevels);
    if(priceAboveBase)
    {
       if(nLevels < 5 || bid < gridLevels[4])
-         return;   // Chưa đủ 5 bậc trên đường gốc
+         return;
    }
    else
    {
       if(nLevels <= MaxGridLevels + 4)
          return;
       if(bid > gridLevels[MaxGridLevels + 4])
-         return;   // Chưa đủ 5 bậc dưới đường gốc
+         return;
    }
-   // Collect opposite-side BB losing positions (current session): ticket + P/L
    ulong tickets[];
-   double pls[];
+   double pls[], vols[], openPrices[];
    ArrayResize(tickets, 0);
    ArrayResize(pls, 0);
+   ArrayResize(vols, 0);
+   ArrayResize(openPrices, 0);
    for(int i = 0; i < PositionsTotal(); i++)
    {
       ulong ticket = PositionGetTicket(i);
@@ -1085,29 +1117,42 @@ void DoBalanceBB()
       if(sessionStartTime > 0 && (datetime)PositionGetInteger(POSITION_TIME) < sessionStartTime)
          continue;
       double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
-      double pr = GetPositionPnL(ticket);   // profit + swap
+      double pr = GetPositionPnL(ticket);
+      double vol = PositionGetDouble(POSITION_VOLUME);
       bool isBuy = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY);
       bool oppositeSide = priceAboveBase ? (!isBuy && openPrice < basePrice) : (isBuy && openPrice > basePrice);
       if(!oppositeSide || pr >= 0.0) continue;
       int n = ArraySize(tickets);
       ArrayResize(tickets, n + 1);
       ArrayResize(pls, n + 1);
+      ArrayResize(vols, n + 1);
+      ArrayResize(openPrices, n + 1);
       tickets[n] = ticket;
       pls[n] = pr;
+      vols[n] = vol;
+      openPrices[n] = openPrice;
    }
    int cnt = ArraySize(tickets);
    if(cnt == 0) return;
-   // Sort by P/L descending: âm ít nhất trước (e.g. -1 before -5)
+   // Xa đường gốc trước
    for(int i = 0; i < cnt - 1; i++)
       for(int j = i + 1; j < cnt; j++)
-         if(pls[j] > pls[i])
+      {
+         double di = MathAbs(openPrices[i] - basePrice);
+         double dj = MathAbs(openPrices[j] - basePrice);
+         if(dj > di)
          {
-            double tp = pls[i]; pls[i] = pls[j]; pls[j] = tp;
-            ulong tt = tickets[i]; tickets[i] = tickets[j]; tickets[j] = tt;
+            SwapDouble(openPrices[i], openPrices[j]);
+            SwapDouble(pls[i], pls[j]);
+            SwapDouble(vols[i], vols[j]);
+            SwapULong(tickets[i], tickets[j]);
          }
-   double balanceFloor = sessionStartBalance + lockedProfitReserve;  // Vốn tối thiểu: đầu phiên + tiền tiết kiệm
+      }
+   double balanceFloor = sessionStartBalance + lockedProfitReserve;
    double balanceNow = AccountInfoDouble(ACCOUNT_BALANCE);
    double runningClosed = sessionClosedProfitRemaining;
+   double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+   double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
    int closedCount = 0;
    for(int k = 0; k < cnt; k++)
    {
@@ -1117,7 +1162,21 @@ void DoBalanceBB()
       {
          trade.PositionClose(tickets[k]);
          runningClosed += pls[k];
-         balanceNow = balanceAfterClose;  // Cập nhật balance cho lệnh tiếp theo
+         balanceNow = balanceAfterClose;
+         closedCount++;
+         continue;
+      }
+      double spendable = MathMin(runningClosed, MathMin(balanceNow - balanceFloor, MathAbs(pls[k])));
+      if(spendable <= 0) continue;
+      double volClose = vols[k] * (spendable / MathAbs(pls[k]));
+      volClose = MathFloor(volClose / lotStep) * lotStep;
+      if(volClose < minLot) continue;
+      if(volClose >= vols[k]) { volClose = vols[k]; spendable = MathAbs(pls[k]); }
+      if(trade.PositionClosePartial(_Symbol, volClose, tickets[k]))
+      {
+         double realizedPnL = (volClose / vols[k]) * pls[k];
+         runningClosed += realizedPnL;
+         balanceNow += realizedPnL;
          closedCount++;
       }
    }
@@ -1125,19 +1184,17 @@ void DoBalanceBB()
    {
       sessionClosedProfitRemaining = runningClosed;
       lastBalanceBBCloseTime = TimeCurrent();
-      Print("Balance BB: closed ", closedCount, " losing BB. Pool remaining ", runningClosed, ", balance floor ", balanceFloor, ". Cooldown ", BalanceBBCooldownSec, "s.");
+      Print("Balance BB: closed ", closedCount, " (full/partial, farthest first). Pool remaining ", runningClosed, ". Cooldown ", BalanceBBCooldownSec, "s.");
    }
 }
 
 //+------------------------------------------------------------------+
-//| Balance CC: close losing CC when (1) pool covers loss and >= threshold, (2) balance after close >= floor. |
-//| Floor = sessionStartBalance + lockedProfitReserve. Same rule as BB. Least negative first. |
+//| Balance CC: đóng lệnh âm XA đường gốc trước; không đủ thì đóng 1 phần (partial). |
 //+------------------------------------------------------------------+
 void DoBalanceCC()
 {
    if(!EnableCC || !EnableBalanceCC || BalanceCCThresholdUSD <= 0.0)
       return;
-   // Chỉ cân bằng khi: (số $ lệnh đạt TP - % tiền tiết kiệm trong phiên) > lệnh âm cần cân bằng <=> (pool + loss) >= 0 và >= ngưỡng
    if(sessionClosedProfitRemaining < 0)
       return;
    if(BalanceCCCooldownSec > 0 && lastBalanceCCCloseTime > 0 && (TimeCurrent() - lastBalanceCCCloseTime) < BalanceCCCooldownSec)
@@ -1158,9 +1215,11 @@ void DoBalanceCC()
          return;
    }
    ulong tickets[];
-   double pls[];
+   double pls[], vols[], openPrices[];
    ArrayResize(tickets, 0);
    ArrayResize(pls, 0);
+   ArrayResize(vols, 0);
+   ArrayResize(openPrices, 0);
    for(int i = 0; i < PositionsTotal(); i++)
    {
       ulong ticket = PositionGetTicket(i);
@@ -1171,27 +1230,40 @@ void DoBalanceCC()
          continue;
       double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
       double pr = GetPositionPnL(ticket);
+      double vol = PositionGetDouble(POSITION_VOLUME);
       bool isBuy = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY);
       bool oppositeSide = priceAboveBase ? (!isBuy && openPrice < basePrice) : (isBuy && openPrice > basePrice);
       if(!oppositeSide || pr >= 0.0) continue;
       int n = ArraySize(tickets);
       ArrayResize(tickets, n + 1);
       ArrayResize(pls, n + 1);
+      ArrayResize(vols, n + 1);
+      ArrayResize(openPrices, n + 1);
       tickets[n] = ticket;
       pls[n] = pr;
+      vols[n] = vol;
+      openPrices[n] = openPrice;
    }
    int cnt = ArraySize(tickets);
    if(cnt == 0) return;
    for(int i = 0; i < cnt - 1; i++)
       for(int j = i + 1; j < cnt; j++)
-         if(pls[j] > pls[i])
+      {
+         double di = MathAbs(openPrices[i] - basePrice);
+         double dj = MathAbs(openPrices[j] - basePrice);
+         if(dj > di)
          {
-            double tp = pls[i]; pls[i] = pls[j]; pls[j] = tp;
-            ulong tt = tickets[i]; tickets[i] = tickets[j]; tickets[j] = tt;
+            SwapDouble(openPrices[i], openPrices[j]);
+            SwapDouble(pls[i], pls[j]);
+            SwapDouble(vols[i], vols[j]);
+            SwapULong(tickets[i], tickets[j]);
          }
-   double balanceFloor = sessionStartBalance + lockedProfitReserve;  // Vốn tối thiểu: đầu phiên + tiền tiết kiệm
+      }
+   double balanceFloor = sessionStartBalance + lockedProfitReserve;
    double balanceNow = AccountInfoDouble(ACCOUNT_BALANCE);
    double runningClosed = sessionClosedProfitRemaining;
+   double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+   double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
    int closedCount = 0;
    for(int k = 0; k < cnt; k++)
    {
@@ -1203,13 +1275,27 @@ void DoBalanceCC()
          runningClosed += pls[k];
          balanceNow = balanceAfterClose;
          closedCount++;
+         continue;
+      }
+      double spendable = MathMin(runningClosed, MathMin(balanceNow - balanceFloor, MathAbs(pls[k])));
+      if(spendable <= 0) continue;
+      double volClose = vols[k] * (spendable / MathAbs(pls[k]));
+      volClose = MathFloor(volClose / lotStep) * lotStep;
+      if(volClose < minLot) continue;
+      if(volClose >= vols[k]) { volClose = vols[k]; spendable = MathAbs(pls[k]); }
+      if(trade.PositionClosePartial(_Symbol, volClose, tickets[k]))
+      {
+         double realizedPnL = (volClose / vols[k]) * pls[k];
+         runningClosed += realizedPnL;
+         balanceNow += realizedPnL;
+         closedCount++;
       }
    }
    if(closedCount > 0)
    {
       sessionClosedProfitRemaining = runningClosed;
       lastBalanceCCCloseTime = TimeCurrent();
-      Print("Balance CC: closed ", closedCount, " losing CC. Pool remaining ", runningClosed, ", balance floor ", balanceFloor, ". Cooldown ", BalanceCCCooldownSec, "s.");
+      Print("Balance CC: closed ", closedCount, " (full/partial, farthest first). Pool remaining ", runningClosed, ". Cooldown ", BalanceCCCooldownSec, "s.");
    }
 }
 
