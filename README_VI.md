@@ -36,11 +36,11 @@ Các bậc cách đều. Không đặt lệnh tại đường cơ sở; bậc 1 
 
 **AA Auto balance (cặp)**
 
-- Đóng một lệnh **lỗ** (phía ngược với đường cơ sở) + một lệnh **lãi** (cùng phía với giá) khi **tổng P/L của cặp ≥ ngưỡng** (USD). Lot hai bên có thể khác nhau. Giá phải cách đường cơ sở ít nhất **5 bậc lưới**. Cooldown (giây) sau khi đóng cặp.
+- Đóng một lệnh **lỗ** (phía ngược với đường cơ sở) + một lệnh **lãi** (cùng phía với giá) khi **tổng P/L của cặp ≥ ngưỡng** (USD). Lot hai bên có thể khác nhau. Giá phải cách đường cơ sở ít nhất **5 bậc lưới**. Cooldown (giây) sau khi đóng cặp. **Chỉ chạy khi P/L đóng phiên (sau khóa lãi) ≥ 0.**
 
 **AA Balance by BB (Cân bằng AA theo BB)**
 
-- Đóng **một lệnh AA đang lỗ** (phía ngược) khi **(P/L đóng BB trong phiên) + (P/L lệnh AA đó) ≥ ngưỡng** (USD). Chỉ trong phiên; giá phải cách đường cơ sở **5 bậc**; cooldown sau khi đóng.
+- Đóng **một lệnh AA đang lỗ** (phía ngược) khi **(P/L đóng BB trong phiên) + (P/L lệnh AA đó) ≥ ngưỡng** (USD). Chỉ trong phiên; giá phải cách đường cơ sở **5 bậc**; cooldown sau khi đóng. **Chỉ chạy khi P/L đóng BB trong phiên (sau khóa lãi) ≥ 0.**
 
 ### 2.2 Common (Magic & Comment)
 
@@ -53,7 +53,7 @@ Các bậc cách đều. Không đặt lệnh tại đường cơ sở; bậc 1 
 
 **BB Auto balance**
 
-- Đóng **một lệnh BB đang lỗ** (phía ngược) khi **(P/L đóng BB trong phiên) + (P/L lệnh đó) ≥ ngưỡng** (USD). Ưu tiên đóng lệnh âm ít nhất trước. Chỉ trong phiên; giá cách đường cơ sở **5 bậc**; cooldown.
+- Đóng **một lệnh BB đang lỗ** (phía ngược) khi **(P/L đóng BB trong phiên) + (P/L lệnh đó) ≥ ngưỡng** (USD). Ưu tiên đóng lệnh âm ít nhất trước. Chỉ trong phiên; giá cách đường cơ sở **5 bậc**; cooldown. **Chỉ chạy khi P/L đóng BB trong phiên (sau khóa lãi) ≥ 0.**
 
 ### 2.4 CC (cài đặt)
 
@@ -61,7 +61,7 @@ Các bậc cách đều. Không đặt lệnh tại đường cơ sở; bậc 1 
 
 **CC Auto balance**
 
-- Đóng **một lệnh CC đang lỗ** (phía ngược) khi **(P/L đóng CC trong phiên) + (P/L lệnh đó) ≥ ngưỡng** (USD). Ưu tiên đóng lệnh âm ít nhất trước. Chỉ trong phiên; giá **5 bậc** từ đường cơ sở; cooldown.
+- Đóng **một lệnh CC đang lỗ** (phía ngược) khi **(P/L đóng CC trong phiên) + (P/L lệnh đó) ≥ ngưỡng** (USD). Ưu tiên đóng lệnh âm ít nhất trước. Chỉ trong phiên; giá **5 bậc** từ đường cơ sở; cooldown. **Chỉ chạy khi P/L đóng CC trong phiên (sau khóa lãi) ≥ 0.**
 
 ---
 
@@ -118,6 +118,17 @@ Khi bật:
 - **Enable Lock Profit** – Bật/tắt tính năng.
 - **Lock this %** – Phần trăm mỗi lần đóng lệnh có lãi để dự trữ (0–100). Ví dụ: 25 = khóa 25 USD từ 100 USD lãi; chỉ 75 USD được tính vào cân bằng/gồng lãi.
 
+**Ví dụ minh họa (10% cất giữ):**
+
+- Vốn ban đầu: **1000 USD**. Phiên bắt đầu = 1000 USD, P/L đóng phiên = 0.
+- **Lệnh 1** đóng TP **+100 USD** → 10% cất giữ = 10 USD → **90 USD** được cộng vào “chi cho cân bằng”.
+- **Lệnh 2** đóng TP **+200 USD** → 10% cất giữ = 20 USD → **180 USD** được cộng vào “chi cho cân bằng”.
+- Tổng có thể chi cho cân bằng = 90 + 180 = **270 USD**. Lệnh 3 đang mở **âm 100 USD**.
+- Điều kiện cân bằng thỏa: 270 + (−100) = 170 ≥ ngưỡng, P/L đóng phiên ≥ 0, và **số dư sau khi đóng ≥ 0** (170 ≥ 0) → EA **đóng lệnh 3** (lỗ 100).
+- Sau khi đóng lệnh 3: P/L đóng phiên = **170 USD**. Quỹ cất giữ tích lũy = **30 USD**. Balance tài khoản = 1000 + 100 + 200 − 100 = **1200 USD**.
+- **Nếu lệnh 3 là −300 USD:** 270 + (−300) = −30 &lt; 0 → EA **không** đóng (không chi vượt 270 có sẵn).
+- **EA reset** → phiên mới, P/L đóng phiên **reset về 0**; lại tính từ đầu chỉ với các lệnh đóng của phiên mới.
+
 ---
 
 ## Phiên và cách tính P/L
@@ -125,8 +136,10 @@ Khi bật:
 - **Phiên hiện tại** bắt đầu khi:
   - **Gắn EA** vào chart, hoặc  
   - EA thực hiện **reset tự động** (gồng lãi lock, reset balance orders, hoặc đóng hết khi gồng lãi).
-- Khi bắt đầu phiên, P/L đóng phiên và cooldown cân bằng được **reset về 0**; `sessionStartTime` được set. **Hệ số scale theo vốn** cập nhật khi init và sau mỗi lần reset toàn bộ (dùng balance hiện tại so với base).
-- **P/L đóng** (cho tổng phiên và cân bằng) = **Profit + Swap + Commission** (theo deal). Khi bật Lock Profit, chỉ phần không khóa của lần đóng có lãi mới cộng vào tổng phiên.
+- Khi bắt đầu phiên, P/L đóng phiên và cooldown cân bằng được **reset về 0**; `sessionStartTime` được set. Mỗi lần EA reset = **phiên mới** (tính từ đầu). **Hệ số scale theo vốn** cập nhật khi init và sau mỗi lần reset toàn bộ (dùng balance hiện tại so với base).
+- **P/L đóng** (cho tổng phiên và cân bằng) = **Profit + Swap + Commission** (theo deal). Khi bật Lock Profit: mỗi lần đóng **có lãi** thì tính % khóa (cất giữ); chỉ **phần còn lại** mới cộng vào P/L đóng phiên. Phần còn lại đó là số tiền **được phép chi cho cân bằng** (AA, BB, CC).
+- **Quy tắc cân bằng:** Cân bằng (cặp AA, AA theo BB, BB, CC) **chỉ chạy khi** P/L đóng phiên tương ứng (sau khóa lãi) **≥ 0**. Nếu P/L đóng phiên âm thì không được chi cho cân bằng (không đóng lệnh lỗ).
+- **Không chi vượt số có:** Chỉ đóng lệnh lỗ khi **sau khi đóng, số dư P/L phiên (của loại đó) vẫn ≥ 0**. Nếu lỗ lớn hơn số có thể chi (vd. có 270, lỗ 300 → 270 − 300 = −30) thì **không** đóng lệnh đó.
 - **P/L lệnh đang mở** (cho cân bằng và gồng lãi) = **Profit + Swap** (hoa hồng tính khi đóng lệnh).
 - Chỉ **deal có thời gian ≥ sessionStartTime** mới tính vào P/L đóng phiên. Chỉ **lệnh mở tại hoặc sau sessionStartTime** mới coi là “phiên hiện tại” cho logic gồng lãi và cân bằng.
 
