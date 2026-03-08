@@ -16,7 +16,7 @@ enum ENUM_LOT_SCALE { LOT_FIXED = 0, LOT_GEOMETRIC = 2 };
 //+------------------------------------------------------------------+
 input group "=== 1. GRID ==="
 input double GridDistancePips = 2000.0;         // Grid distance (pips)
-input int MaxGridLevels = 25;                   // Max grid levels per side (above/below base line)
+input int MaxGridLevels = 30;                   // Max grid levels per side (above/below base line)
 
 //+------------------------------------------------------------------+
 //| 2. ORDERS                                                          |
@@ -51,7 +51,7 @@ input int BalanceBBCooldownSec = 300;           // BB: Cooldown (seconds) after 
 
 input group "--- 2.4 CC (settings) ---"
 input bool EnableCC = true;                      // Enable CC (Buy Stop + Sell Stop)
-input double LotSizeCC = 0.05;                   // CC: Lot size level 1
+input double LotSizeCC = 0.1;                    // CC: Lot size level 1
 input ENUM_LOT_SCALE CCLotScale = LOT_FIXED;     // CC: Fixed / Geometric
 input double LotMultCC = 1.5;                    // CC: Lot multiplier for level 2+ (Geometric)
 input double MaxLotCC = 2.0;                     // CC: Max lot per order (0=no limit)
