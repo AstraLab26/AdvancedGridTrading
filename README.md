@@ -27,7 +27,14 @@ Levels are evenly spaced. No orders at the base; level 1 is closest to base, the
 
 ## 2. ORDERS
 
-### 2.1 AA (settings)
+Input order: **Common** (Magic & Comment) first, then **AA**, **BB**, **CC** (each with Enable, lot, TP, balance settings).
+
+### 2.1 Common (Magic & Comment)
+
+- **Magic Number** – AA = this; BB = Magic + 1; CC = Magic + 2.
+- **Order comment** – Same comment for all orders (e.g. "EA Grid").
+
+### 2.2 AA (settings)
 
 - **Enable AA** – Turn AA (Buy Stop + Sell Stop) on/off.
 - **Lot level 1** – Lot size for the first level.
@@ -43,11 +50,6 @@ Levels are evenly spaced. No orders at the base; level 1 is closest to base, the
   2. **Account balance after close ≥ floor** (session start balance + locked profit reserve).
 - **If pool is not enough to close the full position:** EA closes a **partial** amount (lot proportional to spendable $). If even partial is below min lot, wait until pool increases.
 - Pool = session **TP closes** (AA+BB+CC) minus lock %. Session only; price must be **5 levels** from base; cooldown after closing.
-
-### 2.2 Common (Magic & Comment)
-
-- **Magic Number** – AA uses this magic; BB = Magic + 1; CC = Magic + 2.
-- **Order comment** – Same comment for all orders (e.g. "EA Grid").
 
 ### 2.3 BB (settings)
 
