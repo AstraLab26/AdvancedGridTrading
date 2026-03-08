@@ -16,7 +16,7 @@ enum ENUM_LOT_SCALE { LOT_FIXED = 0, LOT_GEOMETRIC = 2 };
 //+------------------------------------------------------------------+
 input group "=== 1. GRID ==="
 input double GridDistancePips = 2000.0;         // Grid distance (pips)
-input int MaxGridLevels = 20;                   // Max grid levels per side (above/below base line)
+input int MaxGridLevels = 15;                   // Max grid levels per side (above/below base line)
 
 //+------------------------------------------------------------------+
 //| 2. ORDERS                                                          |
@@ -45,12 +45,23 @@ input group "--- 2.3 BB (settings) ---"
 input bool EnableBB = true;                     // Enable BB (Buy Stop + Sell Stop)
 input double LotSizeBB = 0.05;                  // BB: lot level 1 (fixed)
 input ENUM_LOT_SCALE BBLotScale = LOT_GEOMETRIC; // BB: Fixed / Geometric
-input double LotMultBB = 1.5;                   // BB: lot multiplier for level 2+ (Geometric)
+input double LotMultBB = 1.3;                   // BB: lot multiplier for level 2+ (Geometric)
 input double MaxLotBB = 2.0;                    // BB: max lot (0=no limit; e.g. 1=max 1 lot per order)
 input double TakeProfitPipsBB = 2000.0;         // BB: Take profit (pips, 0=off)
 input bool EnableBalanceBB = true;              // BB: Auto balance - close 1 losing BB when (closed + that position P/L) >= threshold
 input double BalanceBBThresholdUSD = 20.0;      // BB: (closed + 1 losing) >= this (USD) close that one. Multiple: close least negative first. Session only.
 input int BalanceBBCooldownSec = 300;           // BB: Cooldown (seconds) after closing losing BB; 0 = no cooldown. Avoid closing repeatedly when price sideways.
+
+input group "--- 2.4 CC (settings) ---"
+input bool EnableCC = true;                      // Enable CC (Buy Stop + Sell Stop), same logic as BB, separate params
+input double LotSizeCC = 0.05;                   // CC: lot level 1 (fixed)
+input ENUM_LOT_SCALE CCLotScale = LOT_FIXED;     // CC: Fixed / Geometric
+input double LotMultCC = 1.5;                    // CC: lot multiplier for level 2+ (Geometric)
+input double MaxLotCC = 2.0;                     // CC: max lot (0=no limit)
+input double TakeProfitPipsCC = 2000.0;          // CC: Take profit (pips, 0=off)
+input bool EnableBalanceCC = true;               // CC: Auto balance - close 1 losing CC when (closed + that position P/L) >= threshold
+input double BalanceCCThresholdUSD = 20.0;       // CC: (closed + 1 losing) >= this (USD) close that one. Session only.
+input int BalanceCCCooldownSec = 300;            // CC: Cooldown (seconds) after closing losing CC; 0 = no cooldown.
 
 //+------------------------------------------------------------------+
 //| 3. SESSION: Trailing profit (open orders only)                    |
@@ -71,7 +82,7 @@ input double BalanceResetSessionThresholdUSD = 100.0; // Session total (closed +
 //| 4. CAPITAL % SCALING                                               |
 //+------------------------------------------------------------------+
 input group "=== 4. CAPITAL % SCALING ==="
-input bool EnableScaleByAccountGrowth = false;  // Scale lot, TP, SL, trailing by % capital growth
+input bool EnableScaleByAccountGrowth = true;   // Scale lot, TP, SL, trailing by % capital growth
 input double BaseCapitalUSD = 50000.0;         // Base capital (USD): 0=balance when EA attached; >0=use this value
 input double AccountGrowthScalePct = 50.0;     // x% (max 100): capital +100% vs base -> multiply by x%
 
@@ -80,6 +91,10 @@ input double AccountGrowthScalePct = 50.0;     // x% (max 100): capital +100% vs
 //+------------------------------------------------------------------+
 input group "=== 5. NOTIFICATIONS ==="
 input bool EnableResetNotification = true;     // Send notification when EA resets or stops
+
+input group "=== 6. LOCK PROFIT (Save %) ==="
+input bool EnableLockProfit = true;            // Lock profit: reserve X% of each profitable close; this amount is NOT counted in AA/BB/CC balance logic
+input double LockProfitPct = 25.0;             // Lock this % of profitable close (e.g. 25 = reserve 25 USD from 100 USD profit); 0-100
 
 //--- Global variables
 CTrade trade;
@@ -90,6 +105,7 @@ double gridLevels[];                            // Array of level prices (evenly
 double gridStep;                                // One grid step (price) = GridDistancePips, used for tolerance/snap
 double sessionClosedProfit = 0.0;               // Total closed profit/loss in current session
 double sessionClosedProfitBB = 0.0;             // BB only: closed P/L in session (for balance BB)
+double sessionClosedProfitCC = 0.0;             // CC only: closed P/L in session (for balance CC)
 datetime lastResetTime = 0;                     // Last reset time (avoid double-count from orders just closed on reset)
 bool eaStoppedByTarget = false;                 // true = EA stopped placing new orders (Stop mode)
 double balanceGoc = 0.0;                       // Account balance when EA was attached (base, unchanged)
@@ -109,16 +125,19 @@ double globalTotalLotAtMaxLot = 0.0;          // Total open lot at that time sin
 datetime sessionStartTime = 0;                // Phiên hiện tại: bắt đầu khi gắn EA hoặc EA reset. Chỉ tính P/L và lệnh từ thời điểm này.
 int MagicAA = 0;                              // AA orders magic (set in OnInit)
 int MagicBB = 0;                              // BB orders magic (MagicNumber+1)
+int MagicCC = 0;                              // CC orders magic (MagicNumber+2)
 datetime lastBalanceBBCloseTime = 0;          // Last time we closed losing BB (for cooldown)
+datetime lastBalanceCCCloseTime = 0;          // Last time we closed losing CC (for cooldown)
 datetime lastBalanceAACloseTime = 0;         // Last time we closed an AA pair (for cooldown)
 datetime lastBalanceAAByBBCloseTime = 0;     // Last time we closed AA by BB balance (for cooldown)
+double lockedProfitReserve = 0.0;            // Locked profit (X% of each profitable close); excluded from AA/BB/CC balance and trailing
 
 //+------------------------------------------------------------------+
-//| True if magic belongs to this EA (AA or BB)                        |
+//| True if magic belongs to this EA (AA, BB or CC)                    |
 //+------------------------------------------------------------------+
 bool IsOurMagic(long magic)
 {
-   return (magic == MagicAA || magic == MagicBB);
+   return (magic == MagicAA || magic == MagicBB || magic == MagicCC);
 }
 
 //+------------------------------------------------------------------+
@@ -137,6 +156,7 @@ int OnInit()
 {
    MagicAA = MagicNumber;
    MagicBB = MagicNumber + 1;
+   MagicCC = MagicNumber + 2;
    trade.SetExpertMagicNumber(MagicAA);
    dgt = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
    pnt = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
@@ -144,7 +164,9 @@ int OnInit()
    basePrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    sessionClosedProfit = 0.0;
    sessionClosedProfitBB = 0.0;
+   sessionClosedProfitCC = 0.0;
    lastBalanceBBCloseTime = 0;
+   lastBalanceCCCloseTime = 0;
    lastBalanceAACloseTime = 0;
    lastBalanceAAByBBCloseTime = 0;
    lastResetTime = 0;
@@ -180,12 +202,18 @@ int OnInit()
       Print("Balance AA by BB: close 1 losing AA when (BB closed + that AA loss) >= ", BalanceAAByBBThresholdUSD, " USD. Session only. Price 5 levels. Cooldown ", BalanceAAByBBCooldownSec, "s.");
    if(EnableBB && EnableBalanceBB)
       Print("Balance BB: when (BB closed + BB open opposite side) >= ", BalanceBBThresholdUSD, " USD, close losing BB on that side.");
+   if(EnableCC && EnableBalanceCC)
+      Print("Balance CC: when (CC closed + CC open opposite side) >= ", BalanceCCThresholdUSD, " USD, close losing CC on that side.");
+   if(EnableLockProfit && LockProfitPct > 0)
+      Print("Lock profit: ", LockProfitPct, "% of each profitable close is reserved; this amount is not counted in AA/BB/CC balance logic.");
    if(EnableScaleByAccountGrowth)
       Print("Base capital = ", balanceGoc, " USD", BaseCapitalUSD > 0 ? " (manual)" : " (balance at attach)", ". Lot/TP/SL/Trailing x ", AccountGrowthScalePct, "% growth. mult=", sessionMultiplier);
    if(EnableAA)
       Print("AA (BuyStop+SellStop) L1,L2,L3: ", GetLotForLevel(ORDER_TYPE_BUY_STOP,1), ",", GetLotForLevel(ORDER_TYPE_BUY_STOP,2), ",", GetLotForLevel(ORDER_TYPE_BUY_STOP,3));
    if(EnableBB)
       Print("BB (BuyStop+SellStop) L1,L2,L3: ", GetLotForLevelBB(true,1), ",", GetLotForLevelBB(true,2), ",", GetLotForLevelBB(true,3));
+   if(EnableCC)
+      Print("CC (BuyStop+SellStop) L1,L2,L3: ", GetLotForLevelCC(true,1), ",", GetLotForLevelCC(true,2), ",", GetLotForLevelCC(true,3));
    Print("========================================");
    
    // On start place orders at grid levels
@@ -251,7 +279,9 @@ void OnTick()
             lastResetTime = TimeCurrent();
             sessionClosedProfit = 0.0;
             sessionClosedProfitBB = 0.0;
+            sessionClosedProfitCC = 0.0;
             lastBalanceBBCloseTime = 0;
+            lastBalanceCCCloseTime = 0;
             lastBalanceAACloseTime = 0;
             lastBalanceAAByBBCloseTime = 0;
          sessionPeakProfit = 0.0;
@@ -304,7 +334,9 @@ void OnTick()
          lastResetTime = TimeCurrent();
          sessionClosedProfit = 0.0;
          sessionClosedProfitBB = 0.0;
+         sessionClosedProfitCC = 0.0;
          lastBalanceBBCloseTime = 0;
+         lastBalanceCCCloseTime = 0;
          lastBalanceAACloseTime = 0;
          lastBalanceAAByBBCloseTime = 0;
          sessionPeakProfit = 0.0;
@@ -348,7 +380,9 @@ void OnTick()
          lastSellTrailPrice = 0.0;
          sessionClosedProfit = 0.0;
          sessionClosedProfitBB = 0.0;
+         sessionClosedProfitCC = 0.0;
          lastBalanceBBCloseTime = 0;
+         lastBalanceCCCloseTime = 0;
          lastBalanceAACloseTime = 0;
          lastBalanceAAByBBCloseTime = 0;
       sessionPeakProfit = 0.0;
@@ -367,6 +401,8 @@ void OnTick()
       DoBalanceAAByBB();
    if(EnableBB && EnableBalanceBB)
       DoBalanceBB();
+   if(EnableCC && EnableBalanceCC)
+      DoBalanceCC();
    
    ManageGridOrders();
 }
@@ -478,7 +514,15 @@ void UpdateSessionStatsForNotification()
 }
 
 //+------------------------------------------------------------------+
-//| Send notification when EA resets or stops                          |
+//| Send notification when EA resets or stops. Example:                |
+//| EA RESET                                                           |
+//| Chart: EURUSD                                                     |
+//| Reason: Trailing profit                                           |
+//| Initial balance: 10000.00 USD                                      |
+//| Current balance: 10250.00 USD (+2.50%)                             |
+//| Max drawdown/balance (since attach): 150.00 / 9850.00 USD          |
+//| Locked profit (saved, cumulative): 45.20 USD                       |
+//| Max single lot / total open (since attach): 0.05 / 0.25             |
 //+------------------------------------------------------------------+
 void SendResetNotification(const string reason)
 {
@@ -492,6 +536,7 @@ void SendResetNotification(const string reason)
    msg += "Initial balance: " + DoubleToString(balanceGoc, 2) + " USD\n";
    msg += "Current balance: " + DoubleToString(bal, 2) + " USD (" + (pct >= 0 ? "+" : "") + DoubleToString(pct, 2) + "%)\n";
    msg += "Max drawdown/balance (since attach): " + DoubleToString(maxLossUSD, 2) + " / " + DoubleToString(globalMinBalance, 2) + " USD\n";
+   msg += "Locked profit (saved, cumulative): " + DoubleToString(lockedProfitReserve, 2) + " USD\n";
    msg += "Max single lot / total open (since attach): " + DoubleToString(globalMaxSingleLot, 2) + " / " + DoubleToString(globalTotalLotAtMaxLot, 2);
    SendNotification(msg);
 }
@@ -721,9 +766,19 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
    double dealPnL = HistoryDealGetDouble(trans.deal, DEAL_PROFIT)
                   + HistoryDealGetDouble(trans.deal, DEAL_SWAP)
                   + HistoryDealGetDouble(trans.deal, DEAL_COMMISSION);
+   // Lock profit: reserve X% of profitable close; remainder only is added to session. AA/BB/CC balance logic does not count the locked amount.
+   if(EnableLockProfit && LockProfitPct > 0 && dealPnL > 0)
+   {
+      double pct = MathMin(100.0, MathMax(0.0, LockProfitPct));
+      double locked = dealPnL * (pct / 100.0);
+      lockedProfitReserve += locked;
+      dealPnL -= locked;
+   }
    sessionClosedProfit += dealPnL;
    if(HistoryDealGetInteger(trans.deal, DEAL_MAGIC) == MagicBB)
       sessionClosedProfitBB += dealPnL;
+   if(HistoryDealGetInteger(trans.deal, DEAL_MAGIC) == MagicCC)
+      sessionClosedProfitCC += dealPnL;
 }
 
 //+------------------------------------------------------------------+
@@ -787,6 +842,8 @@ double GetLotForLevel(ENUM_ORDER_TYPE orderType, int levelNum)
    
    double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
    double maxLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
+   if(MaxLotAA > 0)
+      maxLot = MathMin(maxLot, MaxLotAA);   // Giới hạn lot lớn nhất AA (0 = không giới hạn)
    double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
    lot = MathMax(minLot, MathMin(maxLot, lot));
    lot = MathFloor(lot / lotStep) * lotStep;
@@ -840,6 +897,42 @@ double GetTakeProfitPipsBB()
 }
 
 //+------------------------------------------------------------------+
+//| CC: Lot bậc 1 (có scale theo vốn nếu bật)                        |
+//+------------------------------------------------------------------+
+double GetBaseLotCC()
+{
+   return (EnableScaleByAccountGrowth) ? (LotSizeCC * sessionMultiplier) : LotSizeCC;
+}
+
+//+------------------------------------------------------------------+
+//| CC: Lot theo bậc (Fixed hoặc Geometric)                          |
+//+------------------------------------------------------------------+
+double GetLotForLevelCC(bool isBuyStop, int levelNum)
+{
+   int absLevel = MathAbs(levelNum);
+   double baseLot = GetBaseLotCC();
+   double lot = baseLot;
+   if(absLevel <= 1 || CCLotScale == LOT_FIXED)
+      lot = baseLot;
+   else if(CCLotScale == LOT_GEOMETRIC)
+      lot = baseLot * MathPow(LotMultCC, absLevel - 1);
+   double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+   double maxLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
+   if(MaxLotCC > 0)
+      maxLot = MathMin(maxLot, MaxLotCC);
+   double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+   lot = MathMax(minLot, MathMin(maxLot, lot));
+   lot = MathFloor(lot / lotStep) * lotStep;
+   if(lot < minLot) lot = minLot;
+   return NormalizeDouble(lot, 2);
+}
+
+double GetTakeProfitPipsCC()
+{
+   return TakeProfitPipsCC;
+}
+
+//+------------------------------------------------------------------+
 //| Initialize level prices - evenly spaced using gridStep            |
 //+------------------------------------------------------------------+
 void InitializeGridLevels()
@@ -888,12 +981,13 @@ void RemoveDuplicateOrdersAtLevel()
 {
    double tolerance = gridStep * 0.5;
    int nLevels = ArraySize(gridLevels);
-   long magics[] = {MagicAA, MagicBB};
+   long magics[] = {MagicAA, MagicBB, MagicCC};
    bool buySides[] = {true, false};  // Buy Stop, Sell Stop
+   int nMagics = (EnableCC ? 3 : 2);  // AA, BB, CC (if enabled)
    for(int L = 0; L < nLevels; L++)
    {
       double priceLevel = gridLevels[L];
-      for(int m = 0; m < ArraySize(magics); m++)
+      for(int m = 0; m < nMagics; m++)
       {
          long whichMagic = magics[m];
          for(int side = 0; side < 2; side++)
@@ -1188,6 +1282,80 @@ void DoBalanceBB()
 }
 
 //+------------------------------------------------------------------+
+//| CC auto balance: (closed + 1 losing P/L) >= threshold -> close that one. Least negative first. Session only, price 5 levels, cooldown. |
+//+------------------------------------------------------------------+
+void DoBalanceCC()
+{
+   if(!EnableCC || !EnableBalanceCC || BalanceCCThresholdUSD <= 0.0)
+      return;
+   if(BalanceCCCooldownSec > 0 && lastBalanceCCCloseTime > 0 && (TimeCurrent() - lastBalanceCCCloseTime) < BalanceCCCooldownSec)
+      return;
+   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   bool priceAboveBase = (bid > basePrice);
+   int nLevels = ArraySize(gridLevels);
+   if(priceAboveBase)
+   {
+      if(nLevels < 5 || bid < gridLevels[4])
+         return;
+   }
+   else
+   {
+      if(nLevels <= MaxGridLevels + 4)
+         return;
+      if(bid > gridLevels[MaxGridLevels + 4])
+         return;
+   }
+   ulong tickets[];
+   double pls[];
+   ArrayResize(tickets, 0);
+   ArrayResize(pls, 0);
+   for(int i = 0; i < PositionsTotal(); i++)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket <= 0) continue;
+      if(PositionGetInteger(POSITION_MAGIC) != MagicCC || PositionGetString(POSITION_SYMBOL) != _Symbol)
+         continue;
+      if(sessionStartTime > 0 && (datetime)PositionGetInteger(POSITION_TIME) < sessionStartTime)
+         continue;
+      double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+      double pr = GetPositionPnL(ticket);
+      bool isBuy = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY);
+      bool oppositeSide = priceAboveBase ? (!isBuy && openPrice < basePrice) : (isBuy && openPrice > basePrice);
+      if(!oppositeSide || pr >= 0.0) continue;
+      int n = ArraySize(tickets);
+      ArrayResize(tickets, n + 1);
+      ArrayResize(pls, n + 1);
+      tickets[n] = ticket;
+      pls[n] = pr;
+   }
+   int cnt = ArraySize(tickets);
+   if(cnt == 0) return;
+   for(int i = 0; i < cnt - 1; i++)
+      for(int j = i + 1; j < cnt; j++)
+         if(pls[j] > pls[i])
+         {
+            double tp = pls[i]; pls[i] = pls[j]; pls[j] = tp;
+            ulong tt = tickets[i]; tickets[i] = tickets[j]; tickets[j] = tt;
+         }
+   double runningClosed = sessionClosedProfitCC;
+   int closedCount = 0;
+   for(int k = 0; k < cnt; k++)
+   {
+      if(runningClosed + pls[k] >= BalanceCCThresholdUSD)
+      {
+         trade.PositionClose(tickets[k]);
+         runningClosed += pls[k];
+         closedCount++;
+      }
+   }
+   if(closedCount > 0)
+   {
+      lastBalanceCCCloseTime = TimeCurrent();
+      Print("Balance CC: closed ", closedCount, " losing CC (least negative first). Cooldown ", BalanceCCCooldownSec, "s. Session closed ", sessionClosedProfitCC, " -> running ", runningClosed, " USD, threshold ", BalanceCCThresholdUSD);
+   }
+}
+
+//+------------------------------------------------------------------+
 void ManageGridOrders()
 {
    if(gongLaiMode)
@@ -1197,7 +1365,7 @@ void ManageGridOrders()
    RemoveDuplicateOrdersAtLevel();   // Mỗi bậc tối đa 1 lệnh mỗi loại
    double currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    
-   // Trên đường gốc = Buy Stop (AA, BB). Dưới đường gốc = Sell Stop (AA, BB). AA và BB độc lập.
+   // Trên đường gốc = Buy Stop (AA, BB, CC). Dưới đường gốc = Sell Stop (AA, BB, CC). Độc lập từng loại.
    for(int levelNum = 1; levelNum <= MaxGridLevels; levelNum++)
    {
       int idxAbove = levelNum - 1;
@@ -1208,6 +1376,8 @@ void ManageGridOrders()
             EnsureOrderAtLevel(ORDER_TYPE_BUY_STOP, levelAbove, +levelNum);
          if(EnableBB)
             EnsureOrderAtLevelBB(true, levelAbove, +levelNum);
+         if(EnableCC)
+            EnsureOrderAtLevelCC(true, levelAbove, +levelNum);
       }
       int idxBelow = MaxGridLevels + levelNum - 1;
       double levelBelow = gridLevels[idxBelow];
@@ -1217,6 +1387,8 @@ void ManageGridOrders()
             EnsureOrderAtLevel(ORDER_TYPE_SELL_STOP, levelBelow, -levelNum);
          if(EnableBB)
             EnsureOrderAtLevelBB(false, levelBelow, -levelNum);
+         if(EnableCC)
+            EnsureOrderAtLevelCC(false, levelBelow, -levelNum);
       }
    }
 }
@@ -1261,6 +1433,27 @@ void EnsureOrderAtLevelBB(bool isBuyStop, double priceLevel, int levelNum)
    if(!CanPlaceOrderAtLevel(isBuyStop ? ORDER_TYPE_BUY_STOP : ORDER_TYPE_SELL_STOP, priceLevel))
       return;
    PlacePendingOrderBB(isBuyStop, priceLevel, levelNum);
+}
+
+//+------------------------------------------------------------------+
+//| CC: Ensure order at level - chỉ bổ sung khi thiếu (chưa có lệnh chờ CC và chưa có position CC tại bậc). |
+//+------------------------------------------------------------------+
+void EnsureOrderAtLevelCC(bool isBuyStop, double priceLevel, int levelNum)
+{
+   ulong ticket = 0;
+   double existingPrice = 0.0;
+   if(GetPendingOrderAtLevel(isBuyStop ? ORDER_TYPE_BUY_STOP : ORDER_TYPE_SELL_STOP, priceLevel, ticket, existingPrice, MagicCC))
+   {
+      double desiredPrice = NormalizeDouble(priceLevel, dgt);
+      if(MathAbs(existingPrice - desiredPrice) > (pnt / 2.0))
+         AdjustPendingOrderToLevel(ticket, isBuyStop ? ORDER_TYPE_BUY_STOP : ORDER_TYPE_SELL_STOP, priceLevel, GetTakeProfitPipsCC());
+      return;
+   }
+   if(PositionExistsAtLevelWithMagic(priceLevel, MagicCC))
+      return;
+   if(!CanPlaceOrderAtLevel(isBuyStop ? ORDER_TYPE_BUY_STOP : ORDER_TYPE_SELL_STOP, priceLevel))
+      return;
+   PlacePendingOrderCC(isBuyStop, priceLevel, levelNum);
 }
 
 //+------------------------------------------------------------------+
@@ -1328,14 +1521,14 @@ void AdjustPendingOrderToLevel(ulong ticket,
 }
 
 //+------------------------------------------------------------------+
-//| Check if order can be placed at level. Mỗi bậc: 1 AA + 1 BB (nếu bật BB). |
+//| Check if order can be placed at level. Mỗi bậc: 1 AA + 1 BB (nếu bật) + 1 CC (nếu bật). |
 //+------------------------------------------------------------------+
 bool CanPlaceOrderAtLevel(ENUM_ORDER_TYPE orderType, double priceLevel, bool allowSecondOnSide = false)
 {
    double tolerance = gridStep * 0.5;
    bool isBuyOrder = (orderType == ORDER_TYPE_BUY_LIMIT || orderType == ORDER_TYPE_BUY_STOP);
-   int maxBuy  = 1 + (EnableBB ? 1 : 0);
-   int maxSell = 1 + (EnableBB ? 1 : 0);
+   int maxBuy  = 1 + (EnableBB ? 1 : 0) + (EnableCC ? 1 : 0);
+   int maxSell = 1 + (EnableBB ? 1 : 0) + (EnableCC ? 1 : 0);
    int buyCount = 0, sellCount = 0;
 
    for(int i = 0; i < OrdersTotal(); i++)
@@ -1425,6 +1618,35 @@ void PlacePendingOrderBB(bool isBuyStop, double priceLevel, int levelNum)
       Print("Order placed BB: ", isBuyStop ? "BuyStop" : "SellStop", " at ", price, " lot ", lot, " (level ", levelNum > 0 ? "+" : "", levelNum, ")");
    else
       Print("Order error BB | Error: ", GetLastError());
+}
+
+//+------------------------------------------------------------------+
+//| CC: Đặt lệnh chờ (Buy Stop hoặc Sell Stop), lot/TP riêng CC       |
+//+------------------------------------------------------------------+
+void PlacePendingOrderCC(bool isBuyStop, double priceLevel, int levelNum)
+{
+   double price = NormalizeDouble(priceLevel, dgt);
+   double lot   = GetLotForLevelCC(isBuyStop, levelNum);
+   double sl = 0, tp = 0;
+   double tpPips = GetTakeProfitPipsCC();
+   if(tpPips > 0)
+   {
+      if(isBuyStop)
+         tp = NormalizeDouble(price + tpPips * pnt * 10.0, dgt);
+      else
+         tp = NormalizeDouble(price - tpPips * pnt * 10.0, dgt);
+   }
+   trade.SetExpertMagicNumber(MagicCC);
+   string cmt = CommentOrder;
+   bool result = false;
+   if(isBuyStop)
+      result = trade.BuyStop(lot, price, _Symbol, sl, tp, ORDER_TIME_GTC, 0, cmt);
+   else
+      result = trade.SellStop(lot, price, _Symbol, sl, tp, ORDER_TIME_GTC, 0, cmt);
+   if(result)
+      Print("Order placed CC: ", isBuyStop ? "BuyStop" : "SellStop", " at ", price, " lot ", lot, " (level ", levelNum > 0 ? "+" : "", levelNum, ")");
+   else
+      Print("Order error CC | Error: ", GetLastError());
 }
 
 //+------------------------------------------------------------------+
