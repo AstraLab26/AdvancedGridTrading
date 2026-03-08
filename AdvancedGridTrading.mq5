@@ -914,20 +914,21 @@ bool PositionExistsAtLevelWithMagic(double priceLevel, long whichMagic)
 }
 
 //+------------------------------------------------------------------+
-//| Per level: max 1 order per (magic, side). Remove duplicate pendings; do not add if position exists at level. |
+//| Mỗi bậc: tối đa 1 lệnh mỗi loại (AA, BB, CC) theo input. Xóa lệnh chờ trùng; nếu đã có position tại bậc thì giữ 0 pending. |
 //+------------------------------------------------------------------+
 void RemoveDuplicateOrdersAtLevel()
 {
    double tolerance = gridStep * 0.5;
    int nLevels = ArraySize(gridLevels);
    long magics[] = {MagicAA, MagicBB, MagicCC};
+   bool enabled[] = {EnableAA, EnableBB, EnableCC};
    bool buySides[] = {true, false};  // Buy Stop, Sell Stop
-   int nMagics = (EnableCC ? 3 : 2);  // AA, BB, CC (if enabled)
    for(int L = 0; L < nLevels; L++)
    {
       double priceLevel = gridLevels[L];
-      for(int m = 0; m < nMagics; m++)
+      for(int m = 0; m < 3; m++)
       {
+         if(!enabled[m]) continue;   // Chỉ áp dụng cho loại đang bật
          long whichMagic = magics[m];
          for(int side = 0; side < 2; side++)
          {
@@ -1308,13 +1309,12 @@ void ManageGridOrders()
    CancelStopOrdersOutsideBaseZone();
    RemoveDuplicateOrdersAtLevel();   // Mỗi bậc tối đa 1 lệnh mỗi loại
    double currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   
-   // Trên đường gốc = Buy Stop (AA, BB, CC). Dưới đường gốc = Sell Stop (AA, BB, CC). Độc lập từng loại.
+   // Buy Stop: trên đường gốc VÀ trên giá hiện tại. Sell Stop: dưới đường gốc VÀ dưới giá hiện tại. Thiếu thì bổ sung.
    for(int levelNum = 1; levelNum <= MaxGridLevels; levelNum++)
    {
       int idxAbove = levelNum - 1;
       double levelAbove = gridLevels[idxAbove];
-      if(levelAbove >= basePrice && levelAbove > currentPrice)
+      if(levelAbove >= basePrice && levelAbove > currentPrice)   // Buy Stop: bậc trên base và trên giá
       {
          if(EnableAA)
             EnsureOrderAtLevel(ORDER_TYPE_BUY_STOP, levelAbove, +levelNum);
@@ -1325,7 +1325,7 @@ void ManageGridOrders()
       }
       int idxBelow = MaxGridLevels + levelNum - 1;
       double levelBelow = gridLevels[idxBelow];
-      if(levelBelow <= basePrice && levelBelow < currentPrice)
+      if(levelBelow <= basePrice && levelBelow < currentPrice)   // Sell Stop: bậc dưới base và dưới giá
       {
          if(EnableAA)
             EnsureOrderAtLevel(ORDER_TYPE_SELL_STOP, levelBelow, -levelNum);
@@ -1353,7 +1353,7 @@ void EnsureOrderAtLevel(ENUM_ORDER_TYPE orderType, double priceLevel, int levelN
    }
    if(PositionExistsAtLevelWithMagic(priceLevel, MagicAA))
       return;
-   if(!CanPlaceOrderAtLevel(orderType, priceLevel))
+   if(!CanPlaceOrderAtLevel(orderType, priceLevel, MagicAA))
       return;
    PlacePendingOrder(orderType, priceLevel, levelNum);
 }
@@ -1374,7 +1374,7 @@ void EnsureOrderAtLevelBB(bool isBuyStop, double priceLevel, int levelNum)
    }
    if(PositionExistsAtLevelWithMagic(priceLevel, MagicBB))
       return;
-   if(!CanPlaceOrderAtLevel(isBuyStop ? ORDER_TYPE_BUY_STOP : ORDER_TYPE_SELL_STOP, priceLevel))
+   if(!CanPlaceOrderAtLevel(isBuyStop ? ORDER_TYPE_BUY_STOP : ORDER_TYPE_SELL_STOP, priceLevel, MagicBB))
       return;
    PlacePendingOrderBB(isBuyStop, priceLevel, levelNum);
 }
@@ -1395,7 +1395,7 @@ void EnsureOrderAtLevelCC(bool isBuyStop, double priceLevel, int levelNum)
    }
    if(PositionExistsAtLevelWithMagic(priceLevel, MagicCC))
       return;
-   if(!CanPlaceOrderAtLevel(isBuyStop ? ORDER_TYPE_BUY_STOP : ORDER_TYPE_SELL_STOP, priceLevel))
+   if(!CanPlaceOrderAtLevel(isBuyStop ? ORDER_TYPE_BUY_STOP : ORDER_TYPE_SELL_STOP, priceLevel, MagicCC))
       return;
    PlacePendingOrderCC(isBuyStop, priceLevel, levelNum);
 }
@@ -1465,41 +1465,38 @@ void AdjustPendingOrderToLevel(ulong ticket,
 }
 
 //+------------------------------------------------------------------+
-//| Check if order can be placed at level. Mỗi bậc: 1 AA + 1 BB (nếu bật) + 1 CC (nếu bật). |
+//| Kiểm tra có thể đặt lệnh tại bậc: mỗi bậc tối đa 1 lệnh mỗi loại (AA, BB, CC) theo input. whichMagic = magic của loại đang đặt. |
 //+------------------------------------------------------------------+
-bool CanPlaceOrderAtLevel(ENUM_ORDER_TYPE orderType, double priceLevel, bool allowSecondOnSide = false)
+bool CanPlaceOrderAtLevel(ENUM_ORDER_TYPE orderType, double priceLevel, long whichMagic)
 {
    double tolerance = gridStep * 0.5;
    bool isBuyOrder = (orderType == ORDER_TYPE_BUY_LIMIT || orderType == ORDER_TYPE_BUY_STOP);
-   int maxBuy  = 1 + (EnableBB ? 1 : 0) + (EnableCC ? 1 : 0);
-   int maxSell = 1 + (EnableBB ? 1 : 0) + (EnableCC ? 1 : 0);
-   int buyCount = 0, sellCount = 0;
+   int countSameLevel = 0;
 
    for(int i = 0; i < OrdersTotal(); i++)
    {
       ulong ticket = OrderGetTicket(i);
       if(ticket <= 0) continue;
-      if(!IsOurMagic(OrderGetInteger(ORDER_MAGIC)) || OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
+      if(OrderGetInteger(ORDER_MAGIC) != whichMagic || OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
       double orderPrice = OrderGetDouble(ORDER_PRICE_OPEN);
       if(MathAbs(orderPrice - priceLevel) >= tolerance) continue;
       ENUM_ORDER_TYPE ot = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
-      if(ot == ORDER_TYPE_BUY_LIMIT || ot == ORDER_TYPE_BUY_STOP) buyCount++;
-      else if(ot == ORDER_TYPE_SELL_LIMIT || ot == ORDER_TYPE_SELL_STOP) sellCount++;
+      bool orderBuy = (ot == ORDER_TYPE_BUY_LIMIT || ot == ORDER_TYPE_BUY_STOP);
+      if(orderBuy == isBuyOrder)
+         countSameLevel++;
    }
    for(int i = 0; i < PositionsTotal(); i++)
    {
       ulong ticket = PositionGetTicket(i);
       if(ticket <= 0) continue;
-      if(!IsOurMagic(PositionGetInteger(POSITION_MAGIC)) || PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      if(PositionGetInteger(POSITION_MAGIC) != whichMagic || PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
       double posPrice = PositionGetDouble(POSITION_PRICE_OPEN);
       if(MathAbs(posPrice - priceLevel) >= tolerance) continue;
       ENUM_POSITION_TYPE pt = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
-      if(pt == POSITION_TYPE_BUY) buyCount++;
-      else if(pt == POSITION_TYPE_SELL) sellCount++;
+      if((pt == POSITION_TYPE_BUY) == isBuyOrder)
+         countSameLevel++;
    }
-   if(isBuyOrder && buyCount >= maxBuy) return false;
-   if(!isBuyOrder && sellCount >= maxSell) return false;
-   return true;
+   return (countSameLevel < 1);   // Tối đa 1 lệnh (pending hoặc position) mỗi loại mỗi bậc
 }
 
 //+------------------------------------------------------------------+
