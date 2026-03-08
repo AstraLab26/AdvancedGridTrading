@@ -6,8 +6,8 @@ MetaTrader 5 Expert Advisor for grid trading with three independent order types 
 
 ## Overview
 
-- **Grid:** Base price at attach, evenly spaced levels (pips), max levels per side. Buy Stop above base, Sell Stop below base.
-- **AA, BB & CC:** Separate lot, Fixed/Geometric, multiplier, max lot, TP, and magic. Same grid; each level has at most one AA, one BB, and one CC (pending or position). AA = Magic Number, BB = Magic Number + 1, CC = Magic Number + 2. All orders use a single comment (e.g. "EA Grid").
+- **Grid:** Base price at attach, evenly spaced levels (pips), max levels per side. **Buy Stop** is placed only at levels **above the base line and above current price**; **Sell Stop** only at levels **below the base line and below current price**. Missing orders (per enabled type AA/BB/CC) at a level are added by the EA.
+- **AA, BB & CC:** Separate lot, Fixed/Geometric, multiplier, max lot, TP, and magic. Same grid; **at most one order per type per level** (per input: if AA enabled then max 1 AA, etc.). AA = Magic Number, BB = Magic Number + 1, CC = Magic Number + 2. All orders use a single comment (e.g. "EA Grid").
 - **Session:** Current session starts when the EA is attached or when the EA performs an automatic reset. All balance and trailing logic uses only positions and closed P/L from the current session. **Only orders closed at Take Profit (TP)** contribute to the balance pool; SL or manual closes do not.
 - **Balance pool:** Pool = (AA + BB + CC) **TP closes in session** minus **lock % (savings)**. This single pool is used for balancing losing AA, BB, and CC. Balance is allowed only when **pool covers the loss** and **account balance after close does not fall below the floor** (session start balance + locked reserve).
 
@@ -20,7 +20,8 @@ MetaTrader 5 Expert Advisor for grid trading with three independent order types 
 | **Grid distance (pips)** | Distance between adjacent grid levels. |
 | **Max grid levels per side** | Maximum levels above and below the base line. |
 
-Levels are evenly spaced. No orders at the base; level 1 is closest to base, then level 2, 3, …
+Levels are evenly spaced. No orders at the base; level 1 is closest to base, then level 2, 3, …  
+**Order placement:** Buy Stop at levels **above the base line and above current price**; Sell Stop at levels **below the base line and below current price**. At most one AA, one BB, one CC per level (per enabled type); the EA supplements missing orders.
 
 ---
 
@@ -141,4 +142,4 @@ When enabled:
 
 ## Version
 
-2.01 – Advanced Grid Trading EA (Pro). AA, BB, CC; only TP for pool; shared pool; floor = session start + locked; lock profit; capital scaling; session balance (farthest-from-base first, partial close when pool insufficient) and trailing.
+2.01 – Advanced Grid Trading EA (Pro). AA, BB, CC; Buy Stop above base and above price, Sell Stop below base and below price; at most one order per type per level, supplement when missing; only TP for pool; shared pool; floor = session start + locked; lock profit; capital scaling; session balance (farthest-from-base first, partial close when pool insufficient) and trailing.
