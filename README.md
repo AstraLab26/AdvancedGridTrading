@@ -76,15 +76,24 @@ Only positions opened in the **current session** are used for trailing. Notifica
 
 ## 4. CAPITAL % SCALING
 
-- **Scale by capital growth** – When enabled, **lot** (AA/BB/CC) and **trailing threshold (USD)** are scaled by account growth % vs base capital.
-- **Base capital (USD)** – 0 = balance when EA attached; > 0 = use this value. Base is updated on EA reset (session start).
+- **Scale by capital growth** – When enabled, **lot** (AA/BB/CC) and **trailing threshold (USD)** are scaled by account growth % vs **base capital**.
+- **Base capital (USD)** – 0 = balance when EA attached; > 0 = use this value. Base is used for lot/TP/SL/Trailing scaling only. Updated on EA reset (session start).
 - **x% (max 100)** – Scaling factor. Formula: `multiplier = 1 + growth × (x/100)`. Multiplier is clamped. TP/SL (pips) use input values and are not scaled.
+
+**Note:** Base capital is used only for scaling (lot, TP, SL, trailing). The notification "Change vs initial capital at EA startup" uses **balance when EA was attached** (or session start), not base capital.
 
 ---
 
 ## 5. NOTIFICATIONS
 
-- **Send notification when EA resets or stops** – Push notification on full reset or EA stop. Content includes reason, chart, balance, %, max drawdown, max lot / total open. Reset message includes **Locked profit (saved, cumulative): X.XX USD** when lock profit is used.
+- **Send notification when EA resets or stops** – Push notification on full reset or EA stop. Content includes reason, chart, balance, **Change vs initial capital at EA startup** (%), max drawdown, max lot / total open. Reset message includes **Locked profit (saved, cumulative): X.XX USD** when lock profit is used.
+- **Change vs initial capital at EA startup** – Percentage is calculated vs **balance when EA was attached** (or session start), not vs base capital. Base capital remains used for lot/TP/SL/Trailing scaling.
+
+**Telegram:**
+- **Enable Telegram** – Send notifications to a Telegram group via Bot.
+- **Bot Token** – Token from @BotFather.
+- **Chat ID** – Group ID (negative number, e.g. -1001234567890).
+- **Note:** Add `https://api.telegram.org` to Tools → Options → Expert Advisors → Allow WebRequest for listed URL.
 
 ---
 
@@ -173,4 +182,4 @@ When enabled:
 
 ## Version
 
-2.03 – Advanced Grid Trading EA (Pro). AA, BB, CC; Buy Stop above base and above price, Sell Stop below base and below price; at most one order per type per level; shared pool; unified balance (farthest first, same level: AA → BB → CC, partial close when pool insufficient) and trailing.
+2.04 – Advanced Grid Trading EA (Pro). AA, BB, CC; Buy Stop above base and above price, Sell Stop below base and below price; at most one order per type per level; shared pool; unified balance (farthest first, same level: AA → BB → CC, partial close when pool insufficient); trailing; Telegram notifications.
