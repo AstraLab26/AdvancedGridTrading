@@ -985,6 +985,7 @@ void DoBalanceAAByBB()
       return;
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    bool priceAboveBase = (bid > basePrice);
+   bool priceBelowBase = (bid < basePrice);
    int nLevels = ArraySize(gridLevels);
    if(priceAboveBase)
    {
@@ -1015,8 +1016,10 @@ void DoBalanceAAByBB()
       double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
       double pr = GetPositionPnL(ticket);
       double vol = PositionGetDouble(POSITION_VOLUME);
-      bool isBuy = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY);
-      bool oppositeSide = priceAboveBase ? (!isBuy && openPrice < basePrice) : (isBuy && openPrice > basePrice);
+      // Chỉ cắt lệnh ĐỐI DIỆN với giá qua đường gốc: giá trên base -> lệnh dưới base; giá dưới base -> lệnh trên base
+      bool posBelowBase = (openPrice < basePrice);
+      bool posAboveBase = (openPrice > basePrice);
+      bool oppositeSide = (priceAboveBase && posBelowBase) || (priceBelowBase && posAboveBase);
       if(!oppositeSide || pr >= 0.0) continue;
       int n = ArraySize(tickets);
       ArrayResize(tickets, n + 1);
@@ -1090,6 +1093,7 @@ void DoBalanceBB()
       return;
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    bool priceAboveBase = (bid > basePrice);
+   bool priceBelowBase = (bid < basePrice);
    int nLevels = ArraySize(gridLevels);
    if(priceAboveBase)
    {
@@ -1120,8 +1124,10 @@ void DoBalanceBB()
       double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
       double pr = GetPositionPnL(ticket);
       double vol = PositionGetDouble(POSITION_VOLUME);
-      bool isBuy = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY);
-      bool oppositeSide = priceAboveBase ? (!isBuy && openPrice < basePrice) : (isBuy && openPrice > basePrice);
+      // Chỉ cắt lệnh ĐỐI DIỆN với giá qua đường gốc: giá trên base -> lệnh dưới base; giá dưới base -> lệnh trên base
+      bool posBelowBase = (openPrice < basePrice);
+      bool posAboveBase = (openPrice > basePrice);
+      bool oppositeSide = (priceAboveBase && posBelowBase) || (priceBelowBase && posAboveBase);
       if(!oppositeSide || pr >= 0.0) continue;
       int n = ArraySize(tickets);
       ArrayResize(tickets, n + 1);
@@ -1202,6 +1208,7 @@ void DoBalanceCC()
       return;
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    bool priceAboveBase = (bid > basePrice);
+   bool priceBelowBase = (bid < basePrice);
    int nLevels = ArraySize(gridLevels);
    if(priceAboveBase)
    {
@@ -1232,8 +1239,10 @@ void DoBalanceCC()
       double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
       double pr = GetPositionPnL(ticket);
       double vol = PositionGetDouble(POSITION_VOLUME);
-      bool isBuy = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY);
-      bool oppositeSide = priceAboveBase ? (!isBuy && openPrice < basePrice) : (isBuy && openPrice > basePrice);
+      // Chỉ cắt lệnh ĐỐI DIỆN với giá qua đường gốc: giá trên base -> lệnh dưới base; giá dưới base -> lệnh trên base
+      bool posBelowBase = (openPrice < basePrice);
+      bool posAboveBase = (openPrice > basePrice);
+      bool oppositeSide = (priceAboveBase && posBelowBase) || (priceBelowBase && posAboveBase);
       if(!oppositeSide || pr >= 0.0) continue;
       int n = ArraySize(tickets);
       ArrayResize(tickets, n + 1);
