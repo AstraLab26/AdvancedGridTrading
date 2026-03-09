@@ -42,33 +42,24 @@ Input order: **Common** (Magic & Comment) first, then **AA**, **BB**, **CC** (ea
 - **Lot multiplier** – For Geometric: multiplier for level 2+.
 - **Max lot** – Maximum lot per order (0 = no limit).
 - **Take profit (pips)** – TP in pips (0 = off).
+- **Enable Balance** – Use pool to close losing AA.
+- **Threshold (USD)** – Close when (pool + loss) ≥ this and ≥ 0.
+- **Cooldown (sec)** – Wait time after closing (0 = none).
 
-**AA Balance (by TP pool)**
+**Unified Balance (AA + BB + CC)**
 
-- **Opposite side rule:** Only close positions on the **opposite side of the base line** from current price: price above base → close Sells (below base); price below base → close Buys (above base). Never close same-side orders.
-- **Priority: close the losing AA farthest from the base line first** (one position per run). Close **one losing AA** when:
-  1. **(Pool + that AA loss) ≥ threshold** (USD) and **≥ 0** (pool covers the loss).
-  2. **Account balance after close ≥ floor** (session start balance + locked profit reserve).
-- **If pool is not enough to close the full position:** EA closes a **partial** amount (lot proportional to spendable $). If even partial is below min lot, wait until pool increases.
-- Pool = session **TP closes** (AA+BB+CC) minus lock %. Session only; **current price** must be **at least 5 grid levels** from base; cooldown after closing.
+- **Opposite side rule:** Only close positions on the **opposite side of the base line** from current price: price above base → close Sells (below base); price below base → close Buys (above base).
+- **Order of closing:** Collect all losing AA, BB, CC; close the **farthest from base first**. When same level: **AA → BB → CC**. Close all at the farthest level, then the next level.
+- Each type (AA, BB, CC) uses its **own threshold** when checking (Pool + loss) ≥ threshold. Shared pool; **current price** must be **at least 5 grid levels** from base; cooldown after closing.
+- **If pool is insufficient** for full close: EA **partially closes** (lot proportional to spendable $).
 
 ### 2.3 BB (settings)
 
-- Same structure as AA: Enable, lot, Fixed/Geometric, multiplier, max lot, Take profit.
-
-**BB Balance (by TP pool)**
-
-- **Opposite side rule:** Price above base → close only Sells below base; price below base → close only Buys above base.
-- Close **losing BB** when (pool + that loss) ≥ threshold and ≥ 0, and **balance after close ≥ floor**. **Priority: close the losing position farthest from the base line first.** If pool is not enough to close it fully, **partial close** (lot proportional to $); if below min lot, wait for pool to grow. Pool = session TP closes minus lock %. Session only; **current price** at least **5 grid levels** from base; cooldown.
+- Same structure as AA: Enable, lot, Fixed/Geometric, multiplier, max lot, Take profit, Enable Balance, Threshold (USD), Cooldown (sec). Balance uses unified logic (farthest first, same level: AA → BB → CC).
 
 ### 2.4 CC (settings)
 
-- Same logic as BB, separate parameters: Enable, lot, Fixed/Geometric, multiplier, max lot, Take profit.
-
-**CC Balance (by TP pool)**
-
-- **Opposite side rule:** Price above base → close only Sells below base; price below base → close only Buys above base.
-- Close **losing CC** when (pool + that loss) ≥ threshold and ≥ 0, and **balance after close ≥ floor**. **Priority: close the losing position farthest from the base line first.** If pool is not enough to close it fully, **partial close** (lot proportional to $); if below min lot, wait for pool to grow. Same shared pool (TP closes − lock %). Session only; **current price** at least **5 grid levels** from base; cooldown.
+- Same logic as BB, separate parameters: Enable, lot, Fixed/Geometric, multiplier, max lot, Take profit, Enable Balance, Threshold (USD), Cooldown (sec). Balance uses unified logic (farthest first, same level: AA → BB → CC).
 
 ---
 
@@ -133,8 +124,8 @@ When enabled:
 - **Balance rule:** Balance runs only when **current price** is at least **5 grid levels** from the base line. Only close losers on the **opposite side of the base** from current price (price above base → positions below base; price below base → positions above base). Close a loser only when:
   1. **(Pool + that loss) ≥ threshold** and **≥ 0** (pool covers the loss).
   2. **Account balance after close ≥ session start balance + locked profit reserve** (floor).
-- **Order of closing:** **Farthest from base line first.** If pool is not enough to close that position fully, **partial close** (lot proportional to spendable $); if below min lot, wait until pool increases.
-- **Remaining pool** is decreased when a losing order is closed (same tick: AA then BB then CC use the same remaining pool).
+- **Order of closing:** Collect AA, BB, CC; **farthest from base line first**. When same level: **AA → BB → CC**. Close all at farthest level, then next. If pool is not enough to close that position fully, **partial close** (lot proportional to spendable $); if below min lot, wait until pool increases.
+- **Remaining pool** is decreased when a losing order is closed (unified order: farthest first, same level then AA → BB → CC).
 - **Open position P/L** = Profit + Swap. Only positions opened at or after session start are considered for balance and trailing.
 
 ---
@@ -143,13 +134,12 @@ When enabled:
 
 **Setup:** Base = 1000. Grid distance = 100 pips. Levels above base: 1010, 1020, 1030, …; below base: 990, 980, 970, …
 
-**Case 1 – Price above base, close Sells below base**
+**Case 1 – Price above base, close Sells below base (AA, BB, CC unified)**
 
 - Current price = **1200** (≥ 5 levels from base) → balance is allowed.
-- Open positions: Buy 1010 (+profit), Buy 1050 (+profit), **Sell 990 (−50 USD)**, **Sell 940 (−120 USD)**.
-- **Opposite side rule:** Price above base → close only **Sells below base** (990, 940). Do not close Buys.
-- **Order of closing:** Farthest from base first → close **Sell 940** (−120 USD) first, then Sell 990.
-- **Conditions:** Pool ≥ 120 USD, (Pool + 120) ≥ threshold, balance after close ≥ floor.
+- Open positions: Buy 1010 (+profit), **Sell CC 940 (−120 USD)**, **Sell BB 970 (−80 USD)**, **Sell AA 990 (−50 USD)**.
+- **Opposite side rule:** Price above base → close only **Sells below base**. Do not close Buys.
+- **Order of closing (farthest first):** Close **Sell CC 940** first, then Sell BB 970, then Sell AA 990.
 
 **Case 2 – Price below base, close Buys above base**
 
@@ -164,7 +154,12 @@ When enabled:
 - Pool cannot cover full close → EA **partially closes** Sell 940: lot closed proportional to 60/120 = 50% of lot.
 - Realized loss = 60 USD; remaining pool = 0. Remaining position waits for pool to grow before further close.
 
-**Case 4 – Price near base, no balance**
+**Case 4 – Same farthest level: priority AA → BB → CC**
+
+- Orders at same level 940: **Sell AA 940**, **Sell BB 940**, **Sell CC 940**.
+- **Order of closing:** AA first → BB → CC last. When same level, priority by type.
+
+**Case 5 – Price near base, no balance**
 
 - Current price = **1005** (fewer than 5 levels from base) → **balance does not run**, even if there are losing positions.
 
@@ -178,4 +173,4 @@ When enabled:
 
 ## Version
 
-2.02 – Advanced Grid Trading EA (Pro). AA, BB, CC; Buy Stop above base and above price, Sell Stop below base and below price; at most one order per type per level, supplement when missing; only TP for pool; shared pool; floor = session start + locked; lock profit; capital scaling; session balance (opposite side of base only, farthest-from-base first, partial close when pool insufficient) and trailing.
+2.03 – Advanced Grid Trading EA (Pro). AA, BB, CC; Buy Stop above base and above price, Sell Stop below base and below price; at most one order per type per level; shared pool; unified balance (farthest first, same level: AA → BB → CC, partial close when pool insufficient) and trailing.
