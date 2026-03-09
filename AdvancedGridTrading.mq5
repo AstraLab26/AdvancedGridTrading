@@ -3,8 +3,9 @@
 //|              Advanced Grid Trading EA - Pro edition              |
 //+------------------------------------------------------------------+
 #property copyright "Advanced Grid EA"
-#property version   "2.03"
+#property version   "2.04"
 #property description "Advanced Grid Trading EA: per-order lot, scale by capital, trailing profit, session reset"
+// Telegram: Add https://api.telegram.org to Tools -> Options -> Expert Advisors -> Allow WebRequest for listed URL
 
 #include <Trade\Trade.mqh>
 
@@ -16,7 +17,7 @@ enum ENUM_LOT_SCALE { LOT_FIXED = 0, LOT_GEOMETRIC = 2 };
 //+------------------------------------------------------------------+
 input group "=== 1. GRID ==="
 input double GridDistancePips = 2000.0;         // Grid distance (pips)
-input int MaxGridLevels = 30;                   // Max grid levels per side (above/below base line)
+input int MaxGridLevels = 40;                   // Max grid levels per side (above/below base line)
 
 //+------------------------------------------------------------------+
 //| 2. ORDERS                                                          |
@@ -83,6 +84,10 @@ input double AccountGrowthScalePct = 50.0;     // x% (max 100): capital +100% vs
 //+------------------------------------------------------------------+
 input group "=== 5. NOTIFICATIONS ==="
 input bool EnableResetNotification = true;     // Send notification when EA resets or stops
+input group "--- 5.1 Telegram ---"
+input bool EnableTelegram = false;              // Send notifications to Telegram group
+input string TelegramBotToken = "";             // Bot Token (from @BotFather)
+input string TelegramChatID = "";               // Group Chat ID (negative number, e.g. -1001234567890)
 
 input group "=== 6. LOCK PROFIT (Save %) ==="
 input bool EnableLockProfit = true;            // Lock profit: reserve X% of each profitable TP close; reserved amount is not used for AA/BB/CC balance pool
@@ -222,6 +227,11 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
+   if(EnableResetNotification || EnableTelegram)
+   {
+      UpdateSessionStatsForNotification();
+      SendResetNotification("EA stopped (reason: " + IntegerToString(reason) + ")");
+   }
    DeleteCapitalGrowthLabel();
    Print("Advanced Grid Trading EA stopped. Reason: ", reason);
 }
@@ -441,6 +451,47 @@ void UpdateSessionStatsForNotification()
 }
 
 //+------------------------------------------------------------------+
+//| URL encode cho text gửi Telegram                                   |
+//+------------------------------------------------------------------+
+string UrlEncodeForTelegram(const string s)
+{
+   string result = "";
+   for(int i = 0; i < StringLen(s); i++)
+   {
+      ushort c = StringGetCharacter(s, i);
+      if(c == ' ') result += "+";
+      else if(c == '\n') result += "%0A";
+      else if(c == '\r') result += "%0D";
+      else if(c == '&') result += "%26";
+      else if(c == '=') result += "%3D";
+      else if(c == '+') result += "%2B";
+      else if(c == '%') result += "%25";
+      else if(c >= 32 && c < 127) result += CharToString((uchar)c);
+      else result += "%" + StringFormat("%02X", c);
+   }
+   return result;
+}
+
+//+------------------------------------------------------------------+
+//| Gửi tin nhắn lên Telegram qua Bot. Cần thêm https://api.telegram.org vào Allow WebRequest. |
+//+------------------------------------------------------------------+
+void SendTelegramMessage(const string msg)
+{
+   if(!EnableTelegram || StringLen(TelegramBotToken) < 10 || StringLen(TelegramChatID) < 5)
+      return;
+   string url = "https://api.telegram.org/bot" + TelegramBotToken + "/sendMessage";
+   string body = "chat_id=" + TelegramChatID + "&text=" + UrlEncodeForTelegram(msg);
+   char post[], result[];
+   string resultHeaders;
+   StringToCharArray(body, post, 0, StringLen(body));
+   string headers = "Content-Type: application/x-www-form-urlencoded\r\n";
+   ResetLastError();
+   int res = WebRequest("POST", url, headers, 5000, post, result, resultHeaders);
+   if(res != 200)
+      Print("Telegram: WebRequest failed, res=", res, " err=", GetLastError(), ". Thêm https://api.telegram.org vào Tools->Options->Expert Advisors->Allow WebRequest.");
+}
+
+//+------------------------------------------------------------------+
 //| Send notification when EA resets or stops. Example:                |
 //| EA RESET                                                           |
 //| Chart: EURUSD                                                     |
@@ -453,19 +504,33 @@ void UpdateSessionStatsForNotification()
 //+------------------------------------------------------------------+
 void SendResetNotification(const string reason)
 {
-   if(!EnableResetNotification) return;
+   if(!EnableResetNotification && !EnableTelegram) return;
    double bal = AccountInfoDouble(ACCOUNT_BALANCE);
-   double pct = (balanceGoc > 0) ? ((bal - balanceGoc) / balanceGoc * 100.0) : 0;
+   // Change % = so với vốn lúc EA attach/start (attachBalance), KHÔNG so với vốn cơ sở (BaseCapitalUSD)
+   double pct = (attachBalance > 0) ? ((bal - attachBalance) / attachBalance * 100.0) : 0;
    double maxLossUSD = globalPeakBalance - globalMinBalance;
    string msg = "EA RESET\n";
    msg += "Chart: " + _Symbol + "\n";
-   msg += "Reason: " + reason + "\n";
-   msg += "Initial balance: " + DoubleToString(balanceGoc, 2) + " USD\n";
-   msg += "Current balance: " + DoubleToString(bal, 2) + " USD (" + (pct >= 0 ? "+" : "") + DoubleToString(pct, 2) + "%)\n";
-   msg += "Max drawdown/balance (since attach): " + DoubleToString(maxLossUSD, 2) + " / " + DoubleToString(globalMinBalance, 2) + " USD\n";
-   msg += "Locked profit (saved, cumulative): " + DoubleToString(lockedProfitReserve, 2) + " USD\n";
-   msg += "Max single lot / total open (since attach): " + DoubleToString(globalMaxSingleLot, 2) + " / " + DoubleToString(globalTotalLotAtMaxLot, 2);
-   SendNotification(msg);
+   msg += "Reason: " + reason + "\n\n";
+   msg += "--- SETTINGS ---\n";
+   msg += "Initial balance at EA startup: " + DoubleToString(attachBalance, 2) + " USD\n";
+   if(BaseCapitalUSD == 0)
+      msg += "Base capital (USD): 0 (use balance at attach)\n";
+   else
+      msg += "Base capital (USD): " + DoubleToString(BaseCapitalUSD, 2) + "\n";
+   msg += "Capital scale %: " + DoubleToString(AccountGrowthScalePct, 1) + "%\n\n";
+   msg += "--- CURRENT STATUS ---\n";
+   msg += "Current balance: " + DoubleToString(bal, 2) + " USD\n";
+   msg += "Change vs initial capital at EA startup: " + (pct >= 0 ? "+" : "") + DoubleToString(pct, 2) + "%\n";
+   msg += "Max drawdown: " + DoubleToString(maxLossUSD, 2) + " USD\n";
+   msg += "Lowest balance (since attach): " + DoubleToString(globalMinBalance, 2) + " USD\n\n";
+   msg += "--- FREE EA ---\n";
+   msg += "Free MT5 automated trading EA.\n";
+   msg += "Just register an account using this link: https://one.exnessonelink.com/a/iu0hffnbzb\n";
+   msg += "After registering, send me your account ID to receive the EA.";
+   if(EnableResetNotification)
+      SendNotification(msg);
+   SendTelegramMessage(msg);
 }
 
 //+------------------------------------------------------------------+
