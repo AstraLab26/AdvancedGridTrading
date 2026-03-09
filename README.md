@@ -45,7 +45,8 @@ Input order: **Common** (Magic & Comment) first, then **AA**, **BB**, **CC** (ea
 
 **AA Balance (by TP pool)**
 
-- **Priority: close the losing AA farthest from the base line first** (one position per run). Close **one losing AA** (opposite side) when:
+- **Opposite side rule:** Only close positions on the **opposite side of the base line** from current price: price above base → close Sells (below base); price below base → close Buys (above base). Never close same-side orders.
+- **Priority: close the losing AA farthest from the base line first** (one position per run). Close **one losing AA** when:
   1. **(Pool + that AA loss) ≥ threshold** (USD) and **≥ 0** (pool covers the loss).
   2. **Account balance after close ≥ floor** (session start balance + locked profit reserve).
 - **If pool is not enough to close the full position:** EA closes a **partial** amount (lot proportional to spendable $). If even partial is below min lot, wait until pool increases.
@@ -57,7 +58,8 @@ Input order: **Common** (Magic & Comment) first, then **AA**, **BB**, **CC** (ea
 
 **BB Balance (by TP pool)**
 
-- Close **losing BB** (opposite side) when (pool + that loss) ≥ threshold and ≥ 0, and **balance after close ≥ floor**. **Priority: close the losing position farthest from the base line first.** If pool is not enough to close it fully, **partial close** (lot proportional to $); if below min lot, wait for pool to grow. Pool = session TP closes minus lock %. Session only; price **5 levels** from base; cooldown.
+- **Opposite side rule:** Price above base → close only Sells below base; price below base → close only Buys above base.
+- Close **losing BB** when (pool + that loss) ≥ threshold and ≥ 0, and **balance after close ≥ floor**. **Priority: close the losing position farthest from the base line first.** If pool is not enough to close it fully, **partial close** (lot proportional to $); if below min lot, wait for pool to grow. Pool = session TP closes minus lock %. Session only; price **5 levels** from base; cooldown.
 
 ### 2.4 CC (settings)
 
@@ -65,7 +67,8 @@ Input order: **Common** (Magic & Comment) first, then **AA**, **BB**, **CC** (ea
 
 **CC Balance (by TP pool)**
 
-- Close **losing CC** (opposite side) when (pool + that loss) ≥ threshold and ≥ 0, and **balance after close ≥ floor**. **Priority: close the losing position farthest from the base line first.** If pool is not enough to close it fully, **partial close** (lot proportional to $); if below min lot, wait for pool to grow. Same shared pool (TP closes − lock %). Session only; cooldown.
+- **Opposite side rule:** Price above base → close only Sells below base; price below base → close only Buys above base.
+- Close **losing CC** when (pool + that loss) ≥ threshold and ≥ 0, and **balance after close ≥ floor**. **Priority: close the losing position farthest from the base line first.** If pool is not enough to close it fully, **partial close** (lot proportional to $); if below min lot, wait for pool to grow. Same shared pool (TP closes − lock %). Session only; cooldown.
 
 ---
 
@@ -127,7 +130,7 @@ When enabled:
 - **Current session** starts when the EA is **attached** or when the EA **resets** (trailing lock or all closed).
 - **Only TP closes** (DEAL_REASON_TP) are counted in the balance pool. SL, manual, or stop-out closes do **not** add to the pool.
 - **Pool** = (AA + BB + CC) session TP closes, minus lock % on each profitable TP close. One shared pool for AA, BB, and CC balance.
-- **Balance rule:** Close a loser only when:
+- **Balance rule:** Only close losers on the **opposite side of the base** from current price (price above base → positions below base; price below base → positions above base). Close a loser only when:
   1. **(Pool + that loss) ≥ threshold** and **≥ 0** (pool covers the loss).
   2. **Account balance after close ≥ session start balance + locked profit reserve** (floor).
 - **Order of closing:** **Farthest from base line first.** If pool is not enough to close that position fully, **partial close** (lot proportional to spendable $); if below min lot, wait until pool increases.
@@ -144,4 +147,4 @@ When enabled:
 
 ## Version
 
-2.01 – Advanced Grid Trading EA (Pro). AA, BB, CC; Buy Stop above base and above price, Sell Stop below base and below price; at most one order per type per level, supplement when missing; only TP for pool; shared pool; floor = session start + locked; lock profit; capital scaling; session balance (farthest-from-base first, partial close when pool insufficient) and trailing.
+2.02 – Advanced Grid Trading EA (Pro). AA, BB, CC; Buy Stop above base and above price, Sell Stop below base and below price; at most one order per type per level, supplement when missing; only TP for pool; shared pool; floor = session start + locked; lock profit; capital scaling; session balance (opposite side of base only, farthest-from-base first, partial close when pool insufficient) and trailing.
