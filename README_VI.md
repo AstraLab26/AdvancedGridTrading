@@ -50,7 +50,7 @@ Thứ tự input: **Common** (Magic & Comment) trước, sau đó **AA**, **BB**
   1. **(Pool + lỗ AA đó) ≥ ngưỡng** (USD) và **≥ 0** (pool đủ bù lỗ).
   2. **Balance sau khi đóng ≥ sàn** (vốn đầu phiên + tiền tiết kiệm đã khóa).
 - **Nếu pool không đủ đóng hết** lệnh âm xa nhất: EA **đóng một phần** (lot tỷ lệ với số $ có thể dùng). Nếu không đủ cho tối thiểu một phần (min lot) thì đợi pool tăng rồi đóng sau.
-- Pool = **lệnh đóng TP** (AA+BB+CC) trong phiên trừ % tiết kiệm. Chỉ trong phiên; giá phải cách đường cơ sở **5 bậc**; cooldown sau khi đóng.
+- Pool = **lệnh đóng TP** (AA+BB+CC) trong phiên trừ % tiết kiệm. Chỉ trong phiên; **giá hiện tại** phải cách đường gốc **ít nhất 5 bậc lưới**; cooldown sau khi đóng.
 
 ### 2.3 BB (cài đặt)
 
@@ -59,7 +59,7 @@ Thứ tự input: **Common** (Magic & Comment) trước, sau đó **AA**, **BB**
 **Cân bằng BB (bởi pool lệnh đóng TP)**
 
 - **Quy tắc đối diện:** Giá trên base → chỉ cắt Sell dưới base; giá dưới base → chỉ cắt Buy trên base.
-- Đóng **lệnh BB đang lỗ** khi (pool + lỗ đó) ≥ ngưỡng và ≥ 0, và **balance sau khi đóng ≥ sàn**. Ưu tiên **đóng lệnh âm xa đường gốc trước**. Nếu pool không đủ đóng hết lệnh xa nhất thì **đóng một phần** (lot tỷ lệ); không đủ min lot thì đợi pool tăng. Pool chung (TP đóng − lock %). Chỉ trong phiên; giá cách đường cơ sở **5 bậc**; cooldown.
+- Đóng **lệnh BB đang lỗ** khi (pool + lỗ đó) ≥ ngưỡng và ≥ 0, và **balance sau khi đóng ≥ sàn**. Ưu tiên **đóng lệnh âm xa đường gốc trước**. Nếu pool không đủ đóng hết lệnh xa nhất thì **đóng một phần** (lot tỷ lệ); không đủ min lot thì đợi pool tăng. Pool chung (TP đóng − lock %). Chỉ trong phiên; **giá hiện tại** cách đường gốc **ít nhất 5 bậc lưới**; cooldown.
 
 ### 2.4 CC (cài đặt)
 
@@ -68,7 +68,7 @@ Thứ tự input: **Common** (Magic & Comment) trước, sau đó **AA**, **BB**
 **Cân bằng CC (bởi pool lệnh đóng TP)**
 
 - **Quy tắc đối diện:** Giá trên base → chỉ cắt Sell dưới base; giá dưới base → chỉ cắt Buy trên base.
-- Đóng **lệnh CC đang lỗ** khi (pool + lỗ đó) ≥ ngưỡng và ≥ 0, và **balance sau khi đóng ≥ sàn**. Ưu tiên **đóng lệnh âm xa đường gốc trước**. Nếu pool không đủ đóng hết lệnh xa nhất thì **đóng một phần** (lot tỷ lệ); không đủ min lot thì đợi pool tăng. Cùng pool chung. Chỉ trong phiên; cooldown.
+- Đóng **lệnh CC đang lỗ** khi (pool + lỗ đó) ≥ ngưỡng và ≥ 0, và **balance sau khi đóng ≥ sàn**. Ưu tiên **đóng lệnh âm xa đường gốc trước**. Nếu pool không đủ đóng hết lệnh xa nhất thì **đóng một phần** (lot tỷ lệ); không đủ min lot thì đợi pool tăng. Cùng pool chung. Chỉ trong phiên; **giá hiện tại** cách đường gốc **ít nhất 5 bậc lưới**; cooldown.
 
 ---
 
@@ -130,12 +130,43 @@ Khi bật:
 - **Phiên hiện tại** bắt đầu khi **gắn EA** hoặc EA **reset** (gồng lãi lock hoặc đóng hết).
 - **Chỉ lệnh đóng bởi TP** (DEAL_REASON_TP) mới tính vào pool cân bằng. Đóng bởi SL / cắt tay / stop out **không** cộng pool.
 - **Pool** = (AA + BB + CC) đóng TP trong phiên, trừ lock % trên mỗi lệnh đóng TP có lãi. Một pool chung cho cân bằng AA, BB, CC.
-- **Quy tắc cân bằng:** Chỉ đóng lệnh lỗ ở **phía đối diện đường gốc** so với giá (giá trên base → lệnh dưới base; giá dưới base → lệnh trên base). Đóng lệnh lỗ khi:
+- **Quy tắc cân bằng:** Cân bằng chỉ chạy khi **giá hiện tại** cách đường gốc **ít nhất 5 bậc lưới**. Chỉ đóng lệnh lỗ ở **phía đối diện đường gốc** so với giá (giá trên base → lệnh dưới base; giá dưới base → lệnh trên base). Đóng lệnh lỗ khi:
   1. **(Pool + lỗ đó) ≥ ngưỡng** và **≥ 0** (số $ lệnh đạt TP − % tiền tiết kiệm trong phiên đủ bù lỗ).
   2. **Balance sau khi đóng ≥ vốn đầu phiên + tiền tiết kiệm đã khóa** (sàn).
 - **Thứ tự đóng:** Ưu tiên **lệnh âm xa đường gốc trước**. Nếu pool không đủ đóng hết lệnh đó thì đóng **một phần** (lot theo tỷ lệ $); nếu không đủ min lot thì đợi pool tăng.
 - **Pool còn lại** giảm khi đóng từng lệnh lỗ (cùng tick: AA rồi BB rồi CC dùng chung pool còn lại).
 - **P/L lệnh đang mở** = Profit + Swap. Chỉ lệnh mở từ đầu phiên trở đi mới tính cho cân bằng và gồng lãi.
+
+---
+
+## Ví dụ phương pháp cân bằng
+
+**Giả sử:** Đường gốc = 1000. Grid distance = 100 pips. Các bậc trên base: 1010, 1020, 1030, …; dưới base: 990, 980, 970, …
+
+**Tình huống 1 – Giá trên base, cắt Sell dưới base**
+
+- Giá hiện tại = **1200** (cách base ≥ 5 bậc) → cân bằng được phép chạy.
+- Lệnh đang mở: Buy 1010 (+lãi), Buy 1050 (+lãi), **Sell 990 (−50 USD)**, **Sell 940 (−120 USD)**.
+- **Quy tắc đối diện:** Giá trên base → chỉ cắt **Sell dưới base** (990, 940). Không cắt Buy.
+- **Thứ tự đóng:** Xa đường gốc trước → cắt **Sell 940** (−120 USD) trước, sau đó Sell 990.
+- **Điều kiện:** Pool ≥ 120 USD, (Pool + 120) ≥ ngưỡng, balance sau đóng ≥ sàn.
+
+**Tình huống 2 – Giá dưới base, cắt Buy trên base**
+
+- Giá hiện tại = **850** (cách base ≥ 5 bậc) → cân bằng được phép chạy.
+- Lệnh đang mở: Sell 980 (+lãi), **Buy 1050 (−80 USD)**, **Buy 1100 (−150 USD)**.
+- **Quy tắc đối diện:** Giá dưới base → chỉ cắt **Buy trên base** (1050, 1100). Không cắt Sell.
+- **Thứ tự đóng:** Xa đường gốc trước → cắt **Buy 1100** (−150 USD) trước.
+
+**Tình huống 3 – Pool không đủ, đóng một phần**
+
+- Pool = 60 USD. Lệnh xa nhất cần cắt: Sell 940, lỗ 120 USD.
+- Pool không đủ đóng hết → EA **đóng một phần** Sell 940: lot đóng tỷ lệ 60/120 = 50% lot.
+- Lỗ thực tế khi đóng = 60 USD; pool còn lại = 0. Lệnh còn lại chờ pool tăng rồi đóng tiếp.
+
+**Tình huống 4 – Giá gần base, không cân bằng**
+
+- Giá hiện tại = **1005** (chưa đủ 5 bậc từ base) → **cân bằng không chạy**, dù có lệnh lỗ.
 
 ---
 
