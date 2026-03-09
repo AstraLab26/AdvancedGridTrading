@@ -112,6 +112,7 @@ Current balance: 24800.00 USD
 Change vs initial capital at EA startup: -50.40%
 Max drawdown: 320.00 USD
 Lowest balance (since attach): 24680.00 USD
+Locked profit (saved, cumulative): 125.50 USD
 
 --- FREE EA ---
 Free MT5 automated trading EA.
