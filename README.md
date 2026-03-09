@@ -95,6 +95,30 @@ Only positions opened in the **current session** are used for trailing. Notifica
 - **Chat ID** – Group ID (negative number, e.g. -1001234567890).
 - **Note:** Add `https://api.telegram.org` to Tools → Options → Expert Advisors → Allow WebRequest for listed URL.
 
+**Example (MT5 push notification & Telegram – same content):**
+
+```
+EA RESET
+Chart: GBPUSD
+Reason: EA stopped (reason: 1)
+
+--- SETTINGS ---
+Initial balance at EA startup: 50000.00 USD
+Base capital (USD): 50000.00
+Capital scale %: 50.0%
+
+--- CURRENT STATUS ---
+Current balance: 24800.00 USD
+Change vs initial capital at EA startup: -50.40%
+Max drawdown: 320.00 USD
+Lowest balance (since attach): 24680.00 USD
+
+--- FREE EA ---
+Free MT5 automated trading EA.
+Just register an account using this link: https://one.exnessonelink.com/a/iu0hffnbzb
+After registering, send me your account ID to receive the EA.
+```
+
 ---
 
 ## 6. LOCK PROFIT (Save %)
