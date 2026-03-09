@@ -42,33 +42,24 @@ Thứ tự input: **Common** (Magic & Comment) trước, sau đó **AA**, **BB**
 - **Lot multiplier** – Với Geometric: hệ số nhân cho bậc 2 trở lên.
 - **Max lot** – Lot tối đa mỗi lệnh (0 = không giới hạn).
 - **Take profit (pips)** – TP theo pips (0 = tắt).
+- **Enable Balance** – Dùng pool để cắt lệnh AA lỗ.
+- **Threshold (USD)** – Cắt khi (pool + lỗ) ≥ ngưỡng và ≥ 0.
+- **Cooldown (giây)** – Thời gian chờ sau khi cắt (0 = không).
 
-**Cân bằng AA (bởi pool lệnh đóng TP)**
+**Cân bằng thống nhất (AA + BB + CC)**
 
-- **Quy tắc đối diện:** Chỉ cắt lệnh ở **phía đối diện đường gốc** so với giá hiện tại: giá trên base → cắt Sell (dưới base); giá dưới base → cắt Buy (trên base). Không bao giờ cắt lệnh cùng phía với giá.
-- Ưu tiên **đóng lệnh AA đang lỗ xa đường gốc trước** (một lệnh mỗi lần). Đóng **một lệnh AA đang lỗ** khi:
-  1. **(Pool + lỗ AA đó) ≥ ngưỡng** (USD) và **≥ 0** (pool đủ bù lỗ).
-  2. **Balance sau khi đóng ≥ sàn** (vốn đầu phiên + tiền tiết kiệm đã khóa).
-- **Nếu pool không đủ đóng hết** lệnh âm xa nhất: EA **đóng một phần** (lot tỷ lệ với số $ có thể dùng). Nếu không đủ cho tối thiểu một phần (min lot) thì đợi pool tăng rồi đóng sau.
-- Pool = **lệnh đóng TP** (AA+BB+CC) trong phiên trừ % tiết kiệm. Chỉ trong phiên; **giá hiện tại** phải cách đường gốc **ít nhất 5 bậc lưới**; cooldown sau khi đóng.
+- **Quy tắc đối diện:** Chỉ cắt lệnh ở **phía đối diện đường gốc** so với giá hiện tại: giá trên base → cắt Sell (dưới base); giá dưới base → cắt Buy (trên base).
+- **Thứ tự đóng:** Gom tất cả lệnh AA, BB, CC đang lỗ; đóng **lệnh xa nhất trước**. Cùng bậc xa nhất thì ưu tiên **AA → BB → CC**. Đóng hết bậc xa rồi đến bậc gần hơn.
+- Mỗi loại (AA, BB, CC) dùng **ngưỡng riêng** khi kiểm tra (Pool + lỗ) ≥ ngưỡng. Pool chung; **giá hiện tại** phải cách đường gốc **ít nhất 5 bậc lưới**; cooldown sau khi đóng.
+- **Nếu pool không đủ đóng hết** lệnh xa nhất: EA **đóng một phần** (lot tỷ lệ với số $ có thể dùng).
 
 ### 2.3 BB (cài đặt)
 
-- Cấu trúc giống AA: Enable, lot, Fixed/Geometric, hệ số nhân, max lot, Take profit.
-
-**Cân bằng BB (bởi pool lệnh đóng TP)**
-
-- **Quy tắc đối diện:** Giá trên base → chỉ cắt Sell dưới base; giá dưới base → chỉ cắt Buy trên base.
-- Đóng **lệnh BB đang lỗ** khi (pool + lỗ đó) ≥ ngưỡng và ≥ 0, và **balance sau khi đóng ≥ sàn**. Ưu tiên **đóng lệnh âm xa đường gốc trước**. Nếu pool không đủ đóng hết lệnh xa nhất thì **đóng một phần** (lot tỷ lệ); không đủ min lot thì đợi pool tăng. Pool chung (TP đóng − lock %). Chỉ trong phiên; **giá hiện tại** cách đường gốc **ít nhất 5 bậc lưới**; cooldown.
+- Cấu trúc giống AA: Enable, lot, Fixed/Geometric, hệ số nhân, max lot, Take profit, Enable Balance, Threshold (USD), Cooldown (giây). Cân bằng dùng logic thống nhất (xa nhất trước, cùng bậc: AA → BB → CC).
 
 ### 2.4 CC (cài đặt)
 
-- Logic giống BB, tham số riêng: Enable, lot, Fixed/Geometric, hệ số nhân, max lot, Take profit.
-
-**Cân bằng CC (bởi pool lệnh đóng TP)**
-
-- **Quy tắc đối diện:** Giá trên base → chỉ cắt Sell dưới base; giá dưới base → chỉ cắt Buy trên base.
-- Đóng **lệnh CC đang lỗ** khi (pool + lỗ đó) ≥ ngưỡng và ≥ 0, và **balance sau khi đóng ≥ sàn**. Ưu tiên **đóng lệnh âm xa đường gốc trước**. Nếu pool không đủ đóng hết lệnh xa nhất thì **đóng một phần** (lot tỷ lệ); không đủ min lot thì đợi pool tăng. Cùng pool chung. Chỉ trong phiên; **giá hiện tại** cách đường gốc **ít nhất 5 bậc lưới**; cooldown.
+- Logic giống BB, tham số riêng: Enable, lot, Fixed/Geometric, hệ số nhân, max lot, Take profit, Enable Balance, Threshold (USD), Cooldown (giây). Cân bằng dùng logic thống nhất (xa nhất trước, cùng bậc: AA → BB → CC).
 
 ---
 
@@ -133,8 +124,8 @@ Khi bật:
 - **Quy tắc cân bằng:** Cân bằng chỉ chạy khi **giá hiện tại** cách đường gốc **ít nhất 5 bậc lưới**. Chỉ đóng lệnh lỗ ở **phía đối diện đường gốc** so với giá (giá trên base → lệnh dưới base; giá dưới base → lệnh trên base). Đóng lệnh lỗ khi:
   1. **(Pool + lỗ đó) ≥ ngưỡng** và **≥ 0** (số $ lệnh đạt TP − % tiền tiết kiệm trong phiên đủ bù lỗ).
   2. **Balance sau khi đóng ≥ vốn đầu phiên + tiền tiết kiệm đã khóa** (sàn).
-- **Thứ tự đóng:** Ưu tiên **lệnh âm xa đường gốc trước**. Nếu pool không đủ đóng hết lệnh đó thì đóng **một phần** (lot theo tỷ lệ $); nếu không đủ min lot thì đợi pool tăng.
-- **Pool còn lại** giảm khi đóng từng lệnh lỗ (cùng tick: AA rồi BB rồi CC dùng chung pool còn lại).
+- **Thứ tự đóng:** Gom AA, BB, CC; ưu tiên **lệnh âm xa đường gốc trước**. Cùng bậc thì **AA → BB → CC**. Đóng hết bậc xa rồi đến bậc gần. Nếu pool không đủ đóng hết lệnh đó thì đóng **một phần** (lot theo tỷ lệ $); nếu không đủ min lot thì đợi pool tăng.
+- **Pool còn lại** giảm khi đóng từng lệnh lỗ (theo thứ tự thống nhất: xa nhất trước, cùng bậc thì AA → BB → CC).
 - **P/L lệnh đang mở** = Profit + Swap. Chỉ lệnh mở từ đầu phiên trở đi mới tính cho cân bằng và gồng lãi.
 
 ---
@@ -143,13 +134,12 @@ Khi bật:
 
 **Giả sử:** Đường gốc = 1000. Grid distance = 100 pips. Các bậc trên base: 1010, 1020, 1030, …; dưới base: 990, 980, 970, …
 
-**Tình huống 1 – Giá trên base, cắt Sell dưới base**
+**Tình huống 1 – Giá trên base, cắt Sell dưới base (AA, BB, CC gộp chung)**
 
 - Giá hiện tại = **1200** (cách base ≥ 5 bậc) → cân bằng được phép chạy.
-- Lệnh đang mở: Buy 1010 (+lãi), Buy 1050 (+lãi), **Sell 990 (−50 USD)**, **Sell 940 (−120 USD)**.
-- **Quy tắc đối diện:** Giá trên base → chỉ cắt **Sell dưới base** (990, 940). Không cắt Buy.
-- **Thứ tự đóng:** Xa đường gốc trước → cắt **Sell 940** (−120 USD) trước, sau đó Sell 990.
-- **Điều kiện:** Pool ≥ 120 USD, (Pool + 120) ≥ ngưỡng, balance sau đóng ≥ sàn.
+- Lệnh đang mở: Buy 1010 (+lãi), **Sell CC 940 (−120 USD)**, **Sell BB 970 (−80 USD)**, **Sell AA 990 (−50 USD)**.
+- **Quy tắc đối diện:** Giá trên base → chỉ cắt **Sell dưới base**. Không cắt Buy.
+- **Thứ tự đóng (xa nhất trước):** Cắt **Sell CC 940** trước, rồi Sell BB 970, rồi Sell AA 990.
 
 **Tình huống 2 – Giá dưới base, cắt Buy trên base**
 
@@ -164,7 +154,12 @@ Khi bật:
 - Pool không đủ đóng hết → EA **đóng một phần** Sell 940: lot đóng tỷ lệ 60/120 = 50% lot.
 - Lỗ thực tế khi đóng = 60 USD; pool còn lại = 0. Lệnh còn lại chờ pool tăng rồi đóng tiếp.
 
-**Tình huống 4 – Giá gần base, không cân bằng**
+**Tình huống 4 – Cùng bậc xa nhất: ưu tiên AA → BB → CC**
+
+- Lệnh cùng bậc 940: **Sell AA 940**, **Sell BB 940**, **Sell CC 940**.
+- **Thứ tự đóng:** AA trước → BB → CC cuối. Vì cùng bậc nên ưu tiên theo loại.
+
+**Tình huống 5 – Giá gần base, không cân bằng**
 
 - Giá hiện tại = **1005** (chưa đủ 5 bậc từ base) → **cân bằng không chạy**, dù có lệnh lỗ.
 
@@ -178,4 +173,4 @@ Khi bật:
 
 ## Phiên bản
 
-2.02 – Advanced Grid Trading EA (Pro). AA, BB, CC; Buy Stop trên đường gốc và trên giá, Sell Stop dưới đường gốc và dưới giá; mỗi bậc tối đa 1 lệnh mỗi loại, thiếu thì bổ sung; chỉ lệnh đóng TP cho pool; pool chung; sàn vốn = đầu phiên + tiền tiết kiệm; khóa lãi; scale theo vốn; cân bằng (chỉ lệnh đối diện đường gốc, ưu tiên xa đường gốc, đóng một phần nếu pool không đủ) và gồng lãi theo phiên.
+2.03 – Advanced Grid Trading EA (Pro). AA, BB, CC; Buy Stop trên đường gốc và trên giá, Sell Stop dưới đường gốc và dưới giá; mỗi bậc tối đa 1 lệnh mỗi loại; pool chung; cân bằng thống nhất (xa nhất trước, cùng bậc: AA → BB → CC, đóng một phần nếu pool không đủ) và gồng lãi theo phiên.
