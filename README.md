@@ -50,7 +50,7 @@ Input order: **Common** (Magic & Comment) first, then **AA**, **BB**, **CC** (ea
   1. **(Pool + that AA loss) ≥ threshold** (USD) and **≥ 0** (pool covers the loss).
   2. **Account balance after close ≥ floor** (session start balance + locked profit reserve).
 - **If pool is not enough to close the full position:** EA closes a **partial** amount (lot proportional to spendable $). If even partial is below min lot, wait until pool increases.
-- Pool = session **TP closes** (AA+BB+CC) minus lock %. Session only; price must be **5 levels** from base; cooldown after closing.
+- Pool = session **TP closes** (AA+BB+CC) minus lock %. Session only; **current price** must be **at least 5 grid levels** from base; cooldown after closing.
 
 ### 2.3 BB (settings)
 
@@ -59,7 +59,7 @@ Input order: **Common** (Magic & Comment) first, then **AA**, **BB**, **CC** (ea
 **BB Balance (by TP pool)**
 
 - **Opposite side rule:** Price above base → close only Sells below base; price below base → close only Buys above base.
-- Close **losing BB** when (pool + that loss) ≥ threshold and ≥ 0, and **balance after close ≥ floor**. **Priority: close the losing position farthest from the base line first.** If pool is not enough to close it fully, **partial close** (lot proportional to $); if below min lot, wait for pool to grow. Pool = session TP closes minus lock %. Session only; price **5 levels** from base; cooldown.
+- Close **losing BB** when (pool + that loss) ≥ threshold and ≥ 0, and **balance after close ≥ floor**. **Priority: close the losing position farthest from the base line first.** If pool is not enough to close it fully, **partial close** (lot proportional to $); if below min lot, wait for pool to grow. Pool = session TP closes minus lock %. Session only; **current price** at least **5 grid levels** from base; cooldown.
 
 ### 2.4 CC (settings)
 
@@ -68,7 +68,7 @@ Input order: **Common** (Magic & Comment) first, then **AA**, **BB**, **CC** (ea
 **CC Balance (by TP pool)**
 
 - **Opposite side rule:** Price above base → close only Sells below base; price below base → close only Buys above base.
-- Close **losing CC** when (pool + that loss) ≥ threshold and ≥ 0, and **balance after close ≥ floor**. **Priority: close the losing position farthest from the base line first.** If pool is not enough to close it fully, **partial close** (lot proportional to $); if below min lot, wait for pool to grow. Same shared pool (TP closes − lock %). Session only; cooldown.
+- Close **losing CC** when (pool + that loss) ≥ threshold and ≥ 0, and **balance after close ≥ floor**. **Priority: close the losing position farthest from the base line first.** If pool is not enough to close it fully, **partial close** (lot proportional to $); if below min lot, wait for pool to grow. Same shared pool (TP closes − lock %). Session only; **current price** at least **5 grid levels** from base; cooldown.
 
 ---
 
@@ -130,12 +130,43 @@ When enabled:
 - **Current session** starts when the EA is **attached** or when the EA **resets** (trailing lock or all closed).
 - **Only TP closes** (DEAL_REASON_TP) are counted in the balance pool. SL, manual, or stop-out closes do **not** add to the pool.
 - **Pool** = (AA + BB + CC) session TP closes, minus lock % on each profitable TP close. One shared pool for AA, BB, and CC balance.
-- **Balance rule:** Only close losers on the **opposite side of the base** from current price (price above base → positions below base; price below base → positions above base). Close a loser only when:
+- **Balance rule:** Balance runs only when **current price** is at least **5 grid levels** from the base line. Only close losers on the **opposite side of the base** from current price (price above base → positions below base; price below base → positions above base). Close a loser only when:
   1. **(Pool + that loss) ≥ threshold** and **≥ 0** (pool covers the loss).
   2. **Account balance after close ≥ session start balance + locked profit reserve** (floor).
 - **Order of closing:** **Farthest from base line first.** If pool is not enough to close that position fully, **partial close** (lot proportional to spendable $); if below min lot, wait until pool increases.
 - **Remaining pool** is decreased when a losing order is closed (same tick: AA then BB then CC use the same remaining pool).
 - **Open position P/L** = Profit + Swap. Only positions opened at or after session start are considered for balance and trailing.
+
+---
+
+## Balance method – Example
+
+**Setup:** Base = 1000. Grid distance = 100 pips. Levels above base: 1010, 1020, 1030, …; below base: 990, 980, 970, …
+
+**Case 1 – Price above base, close Sells below base**
+
+- Current price = **1200** (≥ 5 levels from base) → balance is allowed.
+- Open positions: Buy 1010 (+profit), Buy 1050 (+profit), **Sell 990 (−50 USD)**, **Sell 940 (−120 USD)**.
+- **Opposite side rule:** Price above base → close only **Sells below base** (990, 940). Do not close Buys.
+- **Order of closing:** Farthest from base first → close **Sell 940** (−120 USD) first, then Sell 990.
+- **Conditions:** Pool ≥ 120 USD, (Pool + 120) ≥ threshold, balance after close ≥ floor.
+
+**Case 2 – Price below base, close Buys above base**
+
+- Current price = **850** (≥ 5 levels from base) → balance is allowed.
+- Open positions: Sell 980 (+profit), **Buy 1050 (−80 USD)**, **Buy 1100 (−150 USD)**.
+- **Opposite side rule:** Price below base → close only **Buys above base** (1050, 1100). Do not close Sells.
+- **Order of closing:** Farthest from base first → close **Buy 1100** (−150 USD) first.
+
+**Case 3 – Pool insufficient, partial close**
+
+- Pool = 60 USD. Farthest losing position to close: Sell 940, loss 120 USD.
+- Pool cannot cover full close → EA **partially closes** Sell 940: lot closed proportional to 60/120 = 50% of lot.
+- Realized loss = 60 USD; remaining pool = 0. Remaining position waits for pool to grow before further close.
+
+**Case 4 – Price near base, no balance**
+
+- Current price = **1005** (fewer than 5 levels from base) → **balance does not run**, even if there are losing positions.
 
 ---
 
