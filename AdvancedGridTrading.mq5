@@ -523,7 +523,8 @@ void SendResetNotification(const string reason)
    msg += "Current balance: " + DoubleToString(bal, 2) + " USD\n";
    msg += "Change vs initial capital at EA startup: " + (pct >= 0 ? "+" : "") + DoubleToString(pct, 2) + "%\n";
    msg += "Max drawdown: " + DoubleToString(maxLossUSD, 2) + " USD\n";
-   msg += "Lowest balance (since attach): " + DoubleToString(globalMinBalance, 2) + " USD\n\n";
+   msg += "Lowest balance (since attach): " + DoubleToString(globalMinBalance, 2) + " USD\n";
+   msg += "Locked profit (saved, cumulative): " + DoubleToString(lockedProfitReserve, 2) + " USD\n\n";
    msg += "--- FREE EA ---\n";
    msg += "Free MT5 automated trading EA.\n";
    msg += "Just register an account using this link: https://one.exnessonelink.com/a/iu0hffnbzb\n";
