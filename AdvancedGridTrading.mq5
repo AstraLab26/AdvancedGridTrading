@@ -47,7 +47,7 @@ input double MaxLotBB = 2.0;                    // BB: Max lot per order (0=no l
 input double TakeProfitPipsBB = 2000.0;         // BB: Take profit (pips; 0=off)
 input bool EnableBalanceBB = true;              // BB: Balance when session TP $ minus lock % is enough to cover the losing BB (pool + loss >= 0 and >= threshold)
 input double BalanceBBThresholdUSD = 20.0;      // BB: Threshold USD. Close BB when (pool + 1 BB loss) >= this and >= 0
-input int BalanceBBCooldownSec = 300;           // BB: Cooldown (seconds) after closing BB loser; 0=none
+input int BalanceBBCooldownSec = 300;           // BB: Cooldown (seconds) after closing; 0=none. Price must be 5 levels from base
 
 input group "--- 2.4 CC (settings) ---"
 input bool EnableCC = true;                      // Enable CC (Buy Stop + Sell Stop)
@@ -58,7 +58,7 @@ input double MaxLotCC = 2.0;                     // CC: Max lot per order (0=no 
 input double TakeProfitPipsCC = 2000.0;          // CC: Take profit (pips; 0=off)
 input bool EnableBalanceCC = true;               // CC: Balance when session TP $ minus lock % is enough to cover the losing CC (pool + loss >= 0 and >= threshold)
 input double BalanceCCThresholdUSD = 20.0;       // CC: Threshold USD. Close CC when (pool + 1 CC loss) >= this value and >= 0
-input int BalanceCCCooldownSec = 300;            // CC: Cooldown (seconds) after closing CC loser; 0=none
+input int BalanceCCCooldownSec = 300;            // CC: Cooldown (seconds) after closing; 0=none. Price must be 5 levels from base
 
 //+------------------------------------------------------------------+
 //| 3. SESSION: Trailing profit (open orders only)                    |
@@ -987,6 +987,7 @@ void DoBalanceAAByBB()
    bool priceAboveBase = (bid > basePrice);
    bool priceBelowBase = (bid < basePrice);
    int nLevels = ArraySize(gridLevels);
+   // Giá hiện tại (bid) phải cách đường gốc ít nhất 5 bậc lưới mới chạy cân bằng
    if(priceAboveBase)
    {
       if(nLevels < 5 || bid < gridLevels[4])
@@ -1095,6 +1096,7 @@ void DoBalanceBB()
    bool priceAboveBase = (bid > basePrice);
    bool priceBelowBase = (bid < basePrice);
    int nLevels = ArraySize(gridLevels);
+   // Giá hiện tại (bid) phải cách đường gốc ít nhất 5 bậc lưới mới chạy cân bằng
    if(priceAboveBase)
    {
       if(nLevels < 5 || bid < gridLevels[4])
@@ -1210,6 +1212,7 @@ void DoBalanceCC()
    bool priceAboveBase = (bid > basePrice);
    bool priceBelowBase = (bid < basePrice);
    int nLevels = ArraySize(gridLevels);
+   // Giá hiện tại (bid) phải cách đường gốc ít nhất 5 bậc lưới mới chạy cân bằng
    if(priceAboveBase)
    {
       if(nLevels < 5 || bid < gridLevels[4])
