@@ -220,6 +220,8 @@ int OnInit()
    
    // On start place orders at grid levels
    ManageGridOrders();
+   DrawBaseLine();           // Đường gốc mảnh tại basePrice
+   DrawSessionStartLine();   // Đường dọc lúc EA khởi động / reset
    return(INIT_SUCCEEDED);
 }
 
@@ -296,6 +298,8 @@ void OnTick()
             lastSellTrailPrice = 0.0;
             basePrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
             InitializeGridLevels();
+            DrawBaseLine();           // Cập nhật đường gốc sau reset
+            DrawSessionStartLine();   // Cập nhật đường dọc thời gian reset
             Print("Trailing profit: lock (peak ", peak, " USD, current ", totalForTrailing, " USD). Reset EA, new session.");
             if(EnableResetNotification) { SendResetNotification("Trailing profit"); double b = AccountInfoDouble(ACCOUNT_BALANCE); sessionPeakBalance = b; sessionMinBalance = b; sessionMaxSingleLot = 0; sessionTotalLotAtMaxLot = 0; }
             return;
@@ -331,6 +335,8 @@ void OnTick()
       sessionPeakProfit = 0.0;
          basePrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
          InitializeGridLevels();
+         DrawBaseLine();           // Cập nhật đường gốc sau reset
+         DrawSessionStartLine();   // Cập nhật đường dọc thời gian reset
          Print("Trailing: all positions closed (SL hit). Reset session, new base = ", basePrice, ". Placing orders again.");
          if(EnableResetNotification) { SendResetNotification("Trailing profit"); double b = AccountInfoDouble(ACCOUNT_BALANCE); sessionPeakBalance = b; sessionMinBalance = b; sessionMaxSingleLot = 0; sessionTotalLotAtMaxLot = 0; }
       }
@@ -398,7 +404,8 @@ void DeleteBaseLine()
 }
 
 //+------------------------------------------------------------------+
-//| Draw vertical line at session start (lúc EA bắt đầu vào lệnh chờ)  |
+//| Draw vertical line at session start (lúc EA khởi động / reset)     |
+//| Cập nhật mỗi lần EA reset khởi động lại                            |
 //+------------------------------------------------------------------+
 void DrawSessionStartLine()
 {
@@ -1035,8 +1042,12 @@ void RemoveDuplicateOrdersAtLevel()
 }
 
 //+------------------------------------------------------------------+
-//| Balance thống nhất AA+BB+CC: đóng lệnh XA NHẤT trước (bất kể loại). |
-//| Đóng hết bậc xa rồi đến bậc gần. Pool chung, mỗi loại dùng ngưỡng riêng. |
+//| Quy tắc cân bằng AA, BB, CC:                                      |
+//| 1. Chỉ đóng lệnh âm NGƯỢC PHÍA với giá hiện tại qua đường gốc:    |
+//|    - Giá trên base → đóng Sell (dưới base)                         |
+//|    - Giá dưới base → đóng Buy (trên base)                           |
+//| 2. Đóng lệnh âm XA đường gốc trước, rồi đến gần. Cùng bậc: AA→BB→CC |
+//| Pool chung, mỗi loại dùng ngưỡng riêng.                            |
 //+------------------------------------------------------------------+
 void DoBalanceAll()
 {
