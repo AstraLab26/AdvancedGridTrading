@@ -78,6 +78,7 @@ input group "=== 4. CAPITAL % SCALING ==="
 input bool EnableScaleByAccountGrowth = true;   // Scale lot, TP, SL, trailing by % capital growth
 input double BaseCapitalUSD = 50000.0;         // Base capital (USD): 0=balance when EA attached; >0=use this value
 input double AccountGrowthScalePct = 50.0;     // x% (max 100): capital +100% vs base -> multiply by x%
+input double MaxScaleIncreasePct = 100.0;      // Max increase % for lot/functions (0=no limit). E.g. 100 = lot/functions increase max 100%, mult capped at 2.0
 
 //+------------------------------------------------------------------+
 //| 5. NOTIFICATIONS                                                    |
@@ -107,7 +108,7 @@ double sessionClosedProfitRemaining = 0.0;      // Pool còn lại trong tick (s
 datetime lastResetTime = 0;                     // Last reset time (avoid double-count from orders just closed on reset)
 bool eaStoppedByTarget = false;                 // true = EA stopped placing new orders (Stop mode)
 double balanceGoc = 0.0;                       // Base capital for scaling (BaseCapitalUSD or balance at attach)
-double attachBalance = 0.0;                    // Vốn lúc EA khởi động: cập nhật mỗi lần EA khởi động hoặc reset (panel "Vốn ban đầu")
+double attachBalance = 0.0;                    // Vốn lúc EA attach lần đầu: KHÔNG reset. Dùng cho "Initial balance at EA startup" và "Change vs initial"
 double sessionMultiplier = 1.0;                // Lot and TP multiplier by % growth vs balanceGoc (1.0 = no change)
 double sessionPeakProfit = 0.0;                // Session profit peak (for trailing profit lock)
 bool gongLaiMode = false;                      // true = trailing threshold reached, pendings cancelled, only trail SL on open positions
@@ -361,7 +362,8 @@ void UpdateSessionMultiplierFromAccountGrowth()
       double pct = MathMin(100.0, MathMax(0.0, AccountGrowthScalePct));
       sessionMultiplier = 1.0 + growth * (pct / 100.0);
       if(sessionMultiplier < 0.1) sessionMultiplier = 0.1;
-      if(sessionMultiplier > 10.0) sessionMultiplier = 10.0;
+      double maxMult = (MaxScaleIncreasePct > 0) ? (1.0 + MaxScaleIncreasePct / 100.0) : 10.0;  // 0 = no limit (cap 10x)
+      if(sessionMultiplier > maxMult) sessionMultiplier = maxMult;
       Print("Reset: capital ", balanceGoc, " -> ", newBalance, " (+", (growth*100), "%). Scale ", pct, "% -> Lot/TP/SL/Trailing x ", sessionMultiplier);
    }
 }
@@ -938,7 +940,7 @@ void InitializeGridLevels()
    sessionStartTime = TimeCurrent();
    double bal = AccountInfoDouble(ACCOUNT_BALANCE);
    sessionStartBalance = bal;
-   attachBalance = bal;   // Vốn lúc EA khởi động: cập nhật mỗi lần EA khởi động lại / reset
+   // attachBalance KHÔNG cập nhật ở đây - chỉ set 1 lần tại OnInit (vốn lúc đầu thêm EA)
    gridStep = GridDistancePips * pnt * 10.0;   // One grid step (even)
    int totalLevels = MaxGridLevels * 2;
    
@@ -1189,7 +1191,8 @@ void ManageGridOrders()
    CancelStopOrdersOutsideBaseZone();
    RemoveDuplicateOrdersAtLevel();   // Mỗi bậc tối đa 1 lệnh mỗi loại
    double currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   // Buy Stop: trên đường gốc VÀ trên giá hiện tại. Sell Stop: dưới đường gốc VÀ dưới giá hiện tại. Thiếu thì bổ sung.
+   // Đặt lệnh từ bậc gần giá gốc trở đi xa hơn: trước bậc trên base, sau bậc dưới base
+   // 1. Bậc trên base (Buy Stop): từ bậc 1 (gần base) → bậc MaxGridLevels (xa base)
    for(int levelNum = 1; levelNum <= MaxGridLevels; levelNum++)
    {
       int idxAbove = levelNum - 1;
@@ -1203,6 +1206,10 @@ void ManageGridOrders()
          if(EnableCC)
             EnsureOrderAtLevelCC(true, levelAbove, +levelNum);
       }
+   }
+   // 2. Bậc dưới base (Sell Stop): từ bậc 1 (gần base) → bậc MaxGridLevels (xa base)
+   for(int levelNum = 1; levelNum <= MaxGridLevels; levelNum++)
+   {
       int idxBelow = MaxGridLevels + levelNum - 1;
       double levelBelow = gridLevels[idxBelow];
       if(levelBelow <= basePrice && levelBelow < currentPrice)   // Sell Stop: bậc dưới base và dưới giá
