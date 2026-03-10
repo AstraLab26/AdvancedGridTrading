@@ -21,7 +21,7 @@ MetaTrader 5 Expert Advisor for grid trading with three independent order types 
 | **Max grid levels per side** | Maximum levels above and below the base line. |
 
 Levels are evenly spaced. No orders at the base; level 1 is closest to base, then level 2, 3, …  
-**Order placement:** Buy Stop at levels **above the base line and above current price**; Sell Stop at levels **below the base line and below current price**. At most one AA, one BB, one CC per level (per enabled type); the EA supplements missing orders.
+**Order placement:** When EA starts, orders are placed **from level closest to base outward** (level 1 first, then 2, 3, …). Buy Stop at levels **above the base line and above current price**; Sell Stop at levels **below the base line and below current price**. At most one AA, one BB, one CC per level (per enabled type); the EA supplements missing orders.
 
 ---
 
@@ -46,10 +46,10 @@ Input order: **Common** (Magic & Comment) first, then **AA**, **BB**, **CC** (ea
 - **Threshold (USD)** – Close when (pool + loss) ≥ this and ≥ 0.
 - **Cooldown (sec)** – Wait time after closing (0 = none).
 
-**Unified Balance (AA + BB + CC)**
+**Balance rules (AA + BB + CC)**
 
-- **Opposite side rule:** Only close positions on the **opposite side of the base line** from current price: price above base → close Sells (below base); price below base → close Buys (above base).
-- **Order of closing:** Collect all losing AA, BB, CC; close the **farthest from base first**. When same level: **AA → BB → CC**. Close all at the farthest level, then the next level.
+- **Rule 1 – Opposite side:** Only close **losing** positions on the **opposite side of the base line** from current price: price above base → close Sells (below base); price below base → close Buys (above base).
+- **Rule 2 – Farthest first:** Close losing orders **farthest from base first**, then closer. When same level: **AA → BB → CC**.
 - Each type (AA, BB, CC) uses its **own threshold** when checking (Pool + loss) ≥ threshold. Shared pool; **current price** must be **at least 5 grid levels** from base; cooldown after closing.
 - **If pool is insufficient** for full close: EA **partially closes** (lot proportional to spendable $).
 
@@ -72,22 +72,28 @@ Input order: **Common** (Magic & Comment) first, then **AA**, **BB**, **CC** (ea
 
 Only positions opened in the **current session** are used for trailing. Notifications are sent on reset.
 
+**Chart drawing:**
+- **Thin base line** – Horizontal line at base price (updates on EA reset).
+- **Vertical line** – Session start time (when EA started or last reset). Updates each time EA resets.
+
 ---
 
 ## 4. CAPITAL % SCALING
 
 - **Scale by capital growth** – When enabled, **lot** (AA/BB/CC) and **trailing threshold (USD)** are scaled by account growth % vs **base capital**.
 - **Base capital (USD)** – 0 = balance when EA attached; > 0 = use this value. Base is used for lot/TP/SL/Trailing scaling only. Updated on EA reset (session start).
-- **x% (max 100)** – Scaling factor. Formula: `multiplier = 1 + growth × (x/100)`. Multiplier is clamped. TP/SL (pips) use input values and are not scaled.
+- **x% (max 100)** – Scaling factor. Formula: `multiplier = 1 + growth × (x/100)`. TP/SL (pips) use input values and are not scaled.
+- **Max increase % for lot/functions** – Cap on multiplier increase (0 = no limit). E.g. 100 = lot/functions can increase max 100%, multiplier capped at 2.0.
 
-**Note:** Base capital is used only for scaling (lot, TP, SL, trailing). The notification "Change vs initial capital at EA startup" uses **balance when EA was attached** (or session start), not base capital.
+**Note:** Base capital is used only for scaling (lot, TP, SL, trailing). The notification "Initial balance at EA startup" and "Change vs initial capital at EA startup" use **balance when EA was first attached** (never reset), not base capital.
 
 ---
 
 ## 5. NOTIFICATIONS
 
 - **Send notification when EA resets or stops** – Push notification on full reset or EA stop. Content includes reason, chart, balance, **Change vs initial capital at EA startup** (%), max drawdown, max lot / total open. Reset message includes **Locked profit (saved, cumulative): X.XX USD** when lock profit is used.
-- **Change vs initial capital at EA startup** – Percentage is calculated vs **balance when EA was attached** (or session start), not vs base capital. Base capital remains used for lot/TP/SL/Trailing scaling.
+- **Initial balance at EA startup** – Balance when EA was first attached. **Never reset** (stays the same even after EA resets).
+- **Change vs initial capital at EA startup** – % = (current balance − initial at attach) / initial at attach × 100. Uses balance when EA was first attached, not base capital.
 
 **Telegram:**
 - **Enable Telegram** – Send notifications to a Telegram group via Bot.
@@ -207,4 +213,4 @@ When enabled:
 
 ## Version
 
-2.04 – Advanced Grid Trading EA (Pro). AA, BB, CC; Buy Stop above base and above price, Sell Stop below base and below price; at most one order per type per level; shared pool; unified balance (farthest first, same level: AA → BB → CC, partial close when pool insufficient); trailing; Telegram notifications.
+2.05 – Advanced Grid Trading EA (Pro). AA, BB, CC; order placement from closest to base outward; balance rules (opposite side, farthest first); Buy Stop above base and above price, Sell Stop below base and below price; at most one order per type per level; shared pool; unified balance (farthest first, same level: AA → BB → CC, partial close when pool insufficient); Max scale increase %; chart: thin base line + vertical session start line; trailing; Telegram notifications; Initial balance at EA startup never reset.
