@@ -9,7 +9,7 @@ MetaTrader 5 Expert Advisor for grid trading with three independent order types 
 - **Grid:** Base price at attach, evenly spaced levels (pips), max levels per side. **Buy Stop** is placed only at levels **above the base line and above current price**; **Sell Stop** only at levels **below the base line and below current price**. Missing orders (per enabled type AA/BB/CC) at a level are added by the EA.
 - **AA, BB & CC:** Separate lot, Fixed/Geometric, multiplier, max lot, TP, and magic. Same grid; **at most one order per type per level** (per input: if AA enabled then max 1 AA, etc.). AA = Magic Number, BB = Magic Number + 1, CC = Magic Number + 2. All orders use a single comment (e.g. "EA Grid").
 - **Session:** Current session starts when the EA is attached or when the EA performs an automatic reset. All balance and trailing logic uses only positions and closed P/L from the current session. **Only orders closed at Take Profit (TP)** contribute to the balance pool; SL or manual closes do not.
-- **Balance pool:** Pool = (AA + BB + CC) **TP closes in session** minus **lock % (savings)**. This single pool is used for balancing losing AA, BB, and CC. Balance is allowed only when **pool covers the loss** and **account balance after close does not fall below the floor** (session start balance + locked reserve).
+- **Balance pool:** Pool = **TP closes in current session only** minus **lock (savings) in current session**. Only this remainder is used for balancing. **Locked $ (savings)** is **cumulative across sessions and never reset**; that locked amount is **not used for balance** (floor = session start balance + locked reserve so balance never spends the reserve).
 
 ---
 
@@ -33,6 +33,8 @@ Input order: **Common** (Magic & Comment) first, then **AA**, **BB**, **CC** (ea
 
 - **Magic Number** – AA = this; BB = Magic + 1; CC = Magic + 2.
 - **Order comment** – Same comment for all orders (e.g. "EA Grid").
+- **Cancel same-side when no opposite** – When price is at least N levels from base and there are **no positions on the opposite side**, delete all **same-side** pending orders and do not place new same-side pendings.
+- **Cancel same-side min levels from base** – Minimum grid levels (price distance from base) to apply the above (e.g. 5 = only when price ≥ 5 levels from base).
 
 ### 2.2 AA (settings)
 
@@ -49,9 +51,10 @@ Input order: **Common** (Magic & Comment) first, then **AA**, **BB**, **CC** (ea
 **Balance rules (AA + BB + CC)**
 
 - **Rule 1 – Opposite side:** Only close **losing** positions on the **opposite side of the base line** from current price: price above base → close Sells (below base); price below base → close Buys (above base).
+- **Lock Buy / Lock Sell (avoid wrong close):** When **price is above base**, **Buy positions are locked** – balance must **not** close any Buy. When **price is below base**, **Sell positions are locked** – balance must **not** close any Sell. This prevents the balance logic from closing the wrong side.
 - **Rule 2 – Farthest first:** Close losing orders **farthest from base first**, then closer. When same level: **AA → BB → CC**.
 - Each type (AA, BB, CC) uses its **own threshold** when checking (Pool + loss) ≥ threshold. Shared pool; **current price** must be **at least 5 grid levels** from base; cooldown after closing.
-- **If pool is insufficient** for full close: EA **partially closes** (lot proportional to spendable $).
+- **If pool is insufficient** for full close: EA **partially closes** (lot proportional to spendable $). Balance closes (full or partial) are sent with deal comment **"Balance order"**.
 
 ### 2.3 BB (settings)
 
@@ -130,14 +133,14 @@ After registering, send me your account ID to receive the EA.
 
 ## 6. LOCK PROFIT (Save %)
 
-**Meaning:** Lock profit = reserve a **percentage** of each **profitable TP close**. This amount is **not** used for the balance pool. Only the **remainder** (TP $ − lock %) is added to the pool that pays for closing losing orders.
+**Meaning:** Lock profit = reserve a **percentage** of each **profitable TP close**. That locked amount is **cumulative across sessions and never reset**. The locked $ is **not used for balance** (floor protects it).
 
 When enabled:
 
-- On each **profitable** close that is a **Take Profit** (TP), a **percentage** of that profit (e.g. 10%) is **locked** into a reserve.
-- **Deal P/L** = Profit + Swap + Commission. Locked = deal P/L × (Lock % / 100). Only the **remainder** is added to the session balance pool.
-- The **balance pool** = sum over current session of (TP close $ − lock %) for AA, BB, and CC. This pool is **shared** for balancing AA, BB, and CC.
-- **Floor:** When balancing, a losing order is closed only if **account balance after close ≥ session start balance + locked profit reserve**. So capital never drops below (session start + savings).
+- On each **profitable** close that is a **Take Profit** (TP), a **percentage** of that profit (e.g. 10%) is **locked** into a reserve. **Locked profit is cumulative over all sessions and is never reset** (e.g. on EA reset or new session).
+- **Deal P/L** = Profit + Swap + Commission. Locked = deal P/L × (Lock % / 100). Only the **remainder** is added to the **current session** balance pool.
+- **Pool** = **TP closes in current session only** minus **lock taken in current session**. This pool is **shared** for balancing AA, BB, and CC. The **locked $ (savings)** is **not** used for balance.
+- **Floor:** When balancing, a losing order is closed only if **account balance after close ≥ session start balance + locked profit reserve**. So the cumulative locked amount is never spent.
 
 **Parameters:**
 
@@ -160,11 +163,11 @@ When enabled:
 
 - **Current session** starts when the EA is **attached** or when the EA **resets** (trailing lock or all closed).
 - **Only TP closes** (DEAL_REASON_TP) are counted in the balance pool. SL, manual, or stop-out closes do **not** add to the pool.
-- **Pool** = (AA + BB + CC) session TP closes, minus lock % on each profitable TP close. One shared pool for AA, BB, and CC balance.
-- **Balance rule:** Balance runs only when **current price** is at least **5 grid levels** from the base line. Only close losers on the **opposite side of the base** from current price (price above base → positions below base; price below base → positions above base). Close a loser only when:
+- **Pool** = **TP in current session** minus **lock in current session**. Locked $ is cumulative and never reset; it is not used for balance. One shared pool for AA, BB, and CC balance.
+- **Balance rule:** Balance runs only when **current price** is at least **5 grid levels** from the base line. Only close **losing** positions on the **opposite side of the base** (price above base → close Sells below base; price below base → close Buys above base). **Lock:** When price above base, **Buy is locked** (do not close Buy); when price below base, **Sell is locked** (do not close Sell). Close a loser only when:
   1. **(Pool + that loss) ≥ threshold** and **≥ 0** (pool covers the loss).
   2. **Account balance after close ≥ session start balance + locked profit reserve** (floor).
-- **Order of closing:** Collect AA, BB, CC; **farthest from base line first**. When same level: **AA → BB → CC**. Close all at farthest level, then next. If pool is not enough to close that position fully, **partial close** (lot proportional to spendable $); if below min lot, wait until pool increases.
+- **Order of closing:** Collect AA, BB, CC (only opposite-side losers, respecting Buy/Sell lock); **farthest from base line first**. When same level: **AA → BB → CC**. Close all at farthest level, then next. If pool is not enough to close that position fully, **partial close** (lot proportional to spendable $); if below min lot, wait until pool increases. Balance closes use deal comment **"Balance order"**.
 - **Remaining pool** is decreased when a losing order is closed (unified order: farthest first, same level then AA → BB → CC).
 - **Open position P/L** = Profit + Swap. Only positions opened at or after session start are considered for balance and trailing.
 
@@ -178,15 +181,15 @@ When enabled:
 
 - Current price = **1200** (≥ 5 levels from base) → balance is allowed.
 - Open positions: Buy 1010 (+profit), **Sell CC 940 (−120 USD)**, **Sell BB 970 (−80 USD)**, **Sell AA 990 (−50 USD)**.
-- **Opposite side rule:** Price above base → close only **Sells below base**. Do not close Buys.
-- **Order of closing (farthest first):** Close **Sell CC 940** first, then Sell BB 970, then Sell AA 990.
+- **Opposite side + lock:** Price above base → close only **Sells below base**; **Buy is locked** (balance must not close any Buy).
+- **Order of closing (farthest first):** Close **Sell CC 940** first, then Sell BB 970, then Sell AA 990. Deals get comment **"Balance order"**.
 
 **Case 2 – Price below base, close Buys above base**
 
 - Current price = **850** (≥ 5 levels from base) → balance is allowed.
 - Open positions: Sell 980 (+profit), **Buy 1050 (−80 USD)**, **Buy 1100 (−150 USD)**.
-- **Opposite side rule:** Price below base → close only **Buys above base** (1050, 1100). Do not close Sells.
-- **Order of closing:** Farthest from base first → close **Buy 1100** (−150 USD) first.
+- **Opposite side + lock:** Price below base → close only **Buys above base** (1050, 1100); **Sell is locked** (balance must not close any Sell).
+- **Order of closing:** Farthest from base first → close **Buy 1100** (−150 USD) first. Deals get comment **"Balance order"**.
 
 **Case 3 – Pool insufficient, partial close**
 
@@ -213,4 +216,4 @@ When enabled:
 
 ## Version
 
-2.05 – Advanced Grid Trading EA (Pro). AA, BB, CC; order placement from closest to base outward; balance rules (opposite side, farthest first); Buy Stop above base and above price, Sell Stop below base and below price; at most one order per type per level; shared pool; unified balance (farthest first, same level: AA → BB → CC, partial close when pool insufficient); Max scale increase %; chart: thin base line + vertical session start line; trailing; Telegram notifications; Initial balance at EA startup never reset.
+2.06 – Advanced Grid Trading EA (Pro). AA, BB, CC; order placement from closest to base outward; balance rules (opposite side, farthest first; **lock Buy when price above base, lock Sell when price below base** to avoid closing wrong side); balance closes with deal comment **"Balance order"**; pool = **TP in current session minus lock in current session**; **locked $ cumulative across sessions, never reset, not used for balance**; Cancel same-side pending when no opposite (optional, configurable levels); at most one order per type per level; shared pool; unified balance (farthest first, same level: AA → BB → CC, partial close when pool insufficient); Max scale increase %; chart: thin base line + vertical session start line; trailing; Telegram notifications; Initial balance at EA startup never reset.
