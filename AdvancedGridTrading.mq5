@@ -27,6 +27,8 @@ input group "=== 2. ORDERS ==="
 input group "--- 2.1 Common (Magic & Comment) ---"
 input int MagicNumber = 123456;                // Magic Number (AA=this, BB=this+1, CC=this+2)
 input string CommentOrder = "EA Grid";          // Order comment (same for all)
+input bool EnableCancelSameSideWhenNoOpposite = false;  // Khi giá cách base đủ bậc và không có lệnh phía bên kia: xóa lệnh chờ cùng phía giá
+input int CancelSameSideMinLevelsFromBase = 5;          // Số bậc lưới tối thiểu (giá cách base >= này mới áp dụng xóa lệnh cùng phía)
 
 input group "--- 2.2 AA (settings) ---"
 input bool EnableAA = true;                     // Enable AA (Buy Stop + Sell Stop)
@@ -101,8 +103,10 @@ int dgt;
 double basePrice;                               // Base price (base line)
 double gridLevels[];                            // Array of level prices (evenly spaced by GridDistancePips)
 double gridStep;                                // One grid step (price) = GridDistancePips, used for tolerance/snap
-double sessionClosedProfit = 0.0;               // Session closed P/L total (AA+BB+CC đóng TP, sau lock). Reset on EA reset. Pool chung cho cân bằng AA/BB/CC.
-double sessionClosedProfitBB = 0.0;             // BB closed P/L in session (after lock). Dùng nội bộ khi cần.
+// Pool = chỉ lệnh đạt TP trong phiên hiện tại - %/$ tiết kiệm (lock) trong phiên. Dùng cho cân bằng AA/BB/CC.
+double sessionClosedProfit = 0.0;               // Session: (TP profit - lock) trong phiên. Reset on EA reset. Pool chung cân bằng.
+double sessionLockedProfit = 0.0;               // Tiền tiết kiệm (lock) trong phiên hiện tại. Reset on EA reset.
+double sessionClosedProfitBB = 0.0;            // BB closed P/L in session (after lock). Dùng nội bộ khi cần.
 double sessionClosedProfitCC = 0.0;             // CC closed P/L in session (after lock). Dùng nội bộ khi cần.
 double sessionClosedProfitRemaining = 0.0;      // Pool còn lại trong tick (sau khi đóng lệnh lỗ AA/BB/CC). Mỗi tick = sessionClosedProfit.
 datetime lastResetTime = 0;                     // Last reset time (avoid double-count from orders just closed on reset)
@@ -130,7 +134,8 @@ int MagicCC = 0;                              // CC orders magic (MagicNumber+2)
 datetime lastBalanceBBCloseTime = 0;          // Last time we closed losing BB (for cooldown)
 datetime lastBalanceCCCloseTime = 0;          // Last time we closed losing CC (for cooldown)
 datetime lastBalanceAAByBBCloseTime = 0;     // Last time we closed AA by BB balance (for cooldown)
-double lockedProfitReserve = 0.0;            // Locked profit (X% of each profitable close); excluded from AA/BB/CC balance and trailing
+// % tiền tiết kiệm cộng dồn qua các phiên, KHÔNG reset. Số $ lock này không sử dụng cho cân bằng (pool = TP trong phiên - lock trong phiên).
+double lockedProfitReserve = 0.0;            // Locked profit (X% of each profitable TP close); cumulative; not used for balance pool
 
 //+------------------------------------------------------------------+
 //| True if magic belongs to this EA (AA, BB or CC)                    |
@@ -169,6 +174,7 @@ int OnInit()
    
    basePrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    sessionClosedProfit = 0.0;
+   sessionLockedProfit = 0.0;
    sessionClosedProfitBB = 0.0;
    sessionClosedProfitCC = 0.0;
    lastBalanceBBCloseTime = 0;
@@ -287,6 +293,7 @@ void OnTick()
             UpdateSessionMultiplierFromAccountGrowth();
             lastResetTime = TimeCurrent();
             sessionClosedProfit = 0.0;
+            sessionLockedProfit = 0.0;
             sessionClosedProfitBB = 0.0;
             sessionClosedProfitCC = 0.0;
             lastBalanceBBCloseTime = 0;
@@ -327,6 +334,7 @@ void OnTick()
          lastBuyTrailPrice = 0.0;
          lastSellTrailPrice = 0.0;
          sessionClosedProfit = 0.0;
+         sessionLockedProfit = 0.0;
          sessionClosedProfitBB = 0.0;
          sessionClosedProfitCC = 0.0;
          lastBalanceBBCloseTime = 0;
@@ -544,6 +552,81 @@ void SendResetNotification(const string reason)
 }
 
 //+------------------------------------------------------------------+
+//| Kiểm tra: lệnh âm và đối diện với giá hiện tại qua đường gốc (mới được cân bằng đóng) |
+//+------------------------------------------------------------------+
+bool IsLosingOppositeSidePosition(ulong ticket, bool priceAboveBase)
+{
+   if(ticket == 0 || !PositionSelectByTicket(ticket)) return false;
+   if(!IsOurMagic(PositionGetInteger(POSITION_MAGIC)) || PositionGetString(POSITION_SYMBOL) != _Symbol) return false;
+   double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+   double pr = GetPositionPnL(ticket);
+   if(pr >= 0.0) return false;   // Chỉ lệnh âm
+   bool posBelowBase = (openPrice < basePrice);
+   bool posAboveBase = (openPrice > basePrice);
+   bool opposite = (priceAboveBase && posBelowBase) || (!priceAboveBase && posAboveBase);
+   return opposite;
+}
+
+//+------------------------------------------------------------------+
+//| Khóa lệnh cho cân bằng: giá trên gốc → khóa Buy (không đóng Buy); giá dưới gốc → khóa Sell (không đóng Sell). Tránh đóng nhầm. |
+//+------------------------------------------------------------------+
+bool IsPositionLockedForBalance(ulong ticket, bool priceAboveBase)
+{
+   if(ticket == 0 || !PositionSelectByTicket(ticket)) return false;
+   ulong posType = PositionGetInteger(POSITION_TYPE);
+   // Giá trên gốc → khóa Buy; giá dưới gốc → khóa Sell
+   if(priceAboveBase && posType == POSITION_TYPE_BUY) return true;   // Không được đóng Buy
+   if(!priceAboveBase && posType == POSITION_TYPE_SELL) return true; // Không được đóng Sell
+   return false;
+}
+
+//+------------------------------------------------------------------+
+//| Đóng position có ghi comment (dùng khi cân bằng: comment = "Balance order") |
+//+------------------------------------------------------------------+
+bool PositionCloseWithComment(ulong ticket, const string comment)
+{
+   if(ticket == 0 || !PositionSelectByTicket(ticket)) return false;
+   ulong posType = PositionGetInteger(POSITION_TYPE);
+   double vol = PositionGetDouble(POSITION_VOLUME);
+   double price = (posType == POSITION_TYPE_BUY) ? SymbolInfoDouble(_Symbol, SYMBOL_BID) : SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   ENUM_ORDER_TYPE closeType = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_SELL : ORDER_TYPE_BUY;
+   MqlTradeRequest req = {};
+   MqlTradeResult res = {};
+   req.action = TRADE_ACTION_DEAL;
+   req.symbol = _Symbol;
+   req.volume = vol;
+   req.type = closeType;
+   req.position = ticket;
+   req.price = price;
+   req.deviation = 10;
+   req.comment = comment;
+   if(!OrderSend(req, res))
+      return false;
+   return (res.retcode == TRADE_RETCODE_DONE || res.retcode == TRADE_RETCODE_PLACED);
+}
+
+bool PositionClosePartialWithComment(ulong ticket, double volumeClose, const string comment)
+{
+   if(ticket == 0 || volumeClose <= 0 || !PositionSelectByTicket(ticket)) return false;
+   ulong posType = PositionGetInteger(POSITION_TYPE);
+   double price = (posType == POSITION_TYPE_BUY) ? SymbolInfoDouble(_Symbol, SYMBOL_BID) : SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   ENUM_ORDER_TYPE closeType = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_SELL : ORDER_TYPE_BUY;
+   MqlTradeRequest req = {};
+   MqlTradeResult res = {};
+   req.action = TRADE_ACTION_DEAL;
+   req.symbol = _Symbol;
+   req.volume = volumeClose;
+   req.type = closeType;
+   req.position = ticket;
+   req.price = price;
+   req.deviation = 10;
+   req.comment = comment;
+   if(!OrderSend(req, res))
+      return false;
+   return (res.retcode == TRADE_RETCODE_DONE || res.retcode == TRADE_RETCODE_PLACED);
+}
+
+//+------------------------------------------------------------------+
 //| Close all positions and cancel pending orders (same Magic)        |
 //+------------------------------------------------------------------+
 void CloseAllPositionsAndOrders()
@@ -565,6 +648,71 @@ void CloseAllPositionsAndOrders()
 //+------------------------------------------------------------------+
 //| Cancel Buy Stop below base / Sell Stop above base when restriction is on |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Trả về true khi: giá >= CancelSameSideMinLevelsFromBase bậc từ base VÀ không có position phía bên kia. |
+//+------------------------------------------------------------------+
+bool ShouldCancelSameSidePending()
+{
+   if(!EnableCancelSameSideWhenNoOpposite) return false;
+   int minLev = MathMax(1, MathMin(MaxGridLevels, CancelSameSideMinLevelsFromBase));
+   int idxMin = minLev - 1;
+   int nLevels = ArraySize(gridLevels);
+   if(nLevels < minLev) return false;
+   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   bool priceAboveBase = (bid > basePrice);
+   bool priceBelowBase = (bid < basePrice);
+   if(priceAboveBase)
+   {
+      if(bid < gridLevels[idxMin]) return false;   // Giá chưa đủ minLev bậc từ base
+      for(int i = 0; i < PositionsTotal(); i++)
+      {
+         ulong ticket = PositionGetTicket(i);
+         if(ticket <= 0) continue;
+         if(!IsOurMagic(PositionGetInteger(POSITION_MAGIC)) || PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+         if(sessionStartTime > 0 && (datetime)PositionGetInteger(POSITION_TIME) < sessionStartTime) continue;
+         if(PositionGetDouble(POSITION_PRICE_OPEN) < basePrice) return false;   // Có position phía dưới
+      }
+      return true;   // Không có position dưới base -> xóa Buy Stop trên base
+   }
+   if(priceBelowBase)
+   {
+      if(nLevels <= MaxGridLevels + idxMin) return false;
+      if(bid > gridLevels[MaxGridLevels + idxMin]) return false;
+      for(int i = 0; i < PositionsTotal(); i++)
+      {
+         ulong ticket = PositionGetTicket(i);
+         if(ticket <= 0) continue;
+         if(!IsOurMagic(PositionGetInteger(POSITION_MAGIC)) || PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+         if(sessionStartTime > 0 && (datetime)PositionGetInteger(POSITION_TIME) < sessionStartTime) continue;
+         if(PositionGetDouble(POSITION_PRICE_OPEN) > basePrice) return false;   // Có position phía trên
+      }
+      return true;   // Không có position trên base -> xóa Sell Stop dưới base
+   }
+   return false;
+}
+
+void CancelSameSidePendingWhenNoOppositeSide()
+{
+   if(!ShouldCancelSameSidePending()) return;
+   if(gongLaiMode) return;
+   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   bool priceAboveBase = (bid > basePrice);
+   int deleted = 0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = OrderGetTicket(i);
+      if(ticket <= 0 || !IsOurMagic(OrderGetInteger(ORDER_MAGIC)) || OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
+      ENUM_ORDER_TYPE ot = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+      double price = OrderGetDouble(ORDER_PRICE_OPEN);
+      if(priceAboveBase && ot == ORDER_TYPE_BUY_STOP && price > basePrice)
+         { trade.OrderDelete(ticket); deleted++; }
+      else if(!priceAboveBase && ot == ORDER_TYPE_SELL_STOP && price < basePrice)
+         { trade.OrderDelete(ticket); deleted++; }
+   }
+   if(deleted > 0)
+      Print("Cancel same-side: ", (priceAboveBase ? "no positions below" : "no positions above"), " -> deleted ", deleted, " pending.");
+}
+
 //+------------------------------------------------------------------+
 //| Hủy Buy Stop dưới đường gốc, Sell Stop trên đường gốc (lệnh chỉ đặt BS trên base, SS dưới base). |
 void CancelStopOrdersOutsideBaseZone()
@@ -767,19 +915,20 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
    if(HistoryDealGetInteger(trans.deal, DEAL_REASON) != DEAL_REASON_TP)
       return;
    
-   // Closed deal P/L = profit + swap + commission
+   // Closed deal P/L = profit + swap + commission (chỉ lệnh đạt TP trong phiên)
    double dealPnL = HistoryDealGetDouble(trans.deal, DEAL_PROFIT)
                   + HistoryDealGetDouble(trans.deal, DEAL_SWAP)
                   + HistoryDealGetDouble(trans.deal, DEAL_COMMISSION);
-   // Pool phiên = số $ lệnh đạt TP - % tiền tiết kiệm. Cân bằng AA/BB/CC chỉ khi pool > lệnh âm cần cân bằng (pool + loss >= 0).
+   // Pool = TP trong phiên - lock trong phiên. lockedProfitReserve cộng dồn qua các phiên, không reset; $ lock không dùng cho cân bằng.
    if(EnableLockProfit && LockProfitPct > 0 && dealPnL > 0)
    {
       double pct = MathMin(100.0, MathMax(0.0, LockProfitPct));
       double locked = dealPnL * (pct / 100.0);
-      lockedProfitReserve += locked;
+      lockedProfitReserve += locked;   // Cộng dồn, không reset
+      sessionLockedProfit += locked;   // Lock trong phiên (để biết pool = TP - lock phiên)
       dealPnL -= locked;
    }
-   sessionClosedProfit += dealPnL;
+   sessionClosedProfit += dealPnL;   // Pool cân bằng = TP phiên - lock phiên
    long dealMagic = HistoryDealGetInteger(trans.deal, DEAL_MAGIC);
    if(dealMagic == MagicBB)
       sessionClosedProfitBB += dealPnL;
@@ -1043,9 +1192,10 @@ void RemoveDuplicateOrdersAtLevel()
 
 //+------------------------------------------------------------------+
 //| Quy tắc cân bằng AA, BB, CC:                                      |
+//| Pool = chỉ lệnh đạt TP trong phiên hiện tại - %/$ tiết kiệm (lock) trong phiên. |
 //| 1. Chỉ đóng lệnh âm NGƯỢC PHÍA với giá hiện tại qua đường gốc:    |
-//|    - Giá trên base → đóng Sell (dưới base)                         |
-//|    - Giá dưới base → đóng Buy (trên base)                           |
+//|    - Giá trên base → đóng Sell (dưới base); khóa Buy (không đóng Buy). |
+//|    - Giá dưới base → đóng Buy (trên base); khóa Sell (không đóng Sell). |
 //| 2. Đóng lệnh âm XA đường gốc trước, rồi đến gần. Cùng bậc: AA→BB→CC |
 //| Pool chung, mỗi loại dùng ngưỡng riêng.                            |
 //+------------------------------------------------------------------+
@@ -1109,10 +1259,10 @@ void DoBalanceAll()
          double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
          double pr = GetPositionPnL(ticket);
          double vol = PositionGetDouble(POSITION_VOLUME);
-         bool posBelowBase = (openPrice < basePrice);
-         bool posAboveBase = (openPrice > basePrice);
-         bool oppositeSide = (priceAboveBase && posBelowBase) || (priceBelowBase && posAboveBase);
-         if(!oppositeSide || pr >= 0.0) continue;
+         // Chỉ đóng lệnh âm đối diện với giá hiện tại qua đường gốc (hàm kiểm tra)
+         if(!IsLosingOppositeSidePosition(ticket, priceAboveBase)) continue;
+         // Khóa: giá trên gốc không đóng Buy, giá dưới gốc không đóng Sell (tránh đóng nhầm)
+         if(IsPositionLockedForBalance(ticket, priceAboveBase)) continue;
          int n = ArraySize(tickets);
          ArrayResize(tickets, n + 1);
          ArrayResize(pls, n + 1);
@@ -1146,6 +1296,7 @@ void DoBalanceAll()
             int tt = types[i]; types[i] = types[j]; types[j] = tt;
          }
       }
+   // Sàn cân bằng: không dùng phần $ lock (lockedProfitReserve cộng dồn, không reset) để trả lỗ
    double balanceFloor = sessionStartBalance + lockedProfitReserve;
    double balanceNow = AccountInfoDouble(ACCOUNT_BALANCE);
    double runningClosed = sessionClosedProfitRemaining;
@@ -1160,7 +1311,7 @@ void DoBalanceAll()
       double balanceAfterClose = balanceNow + pls[k];
       if(afterClose >= thresh && afterClose >= 0 && balanceAfterClose >= balanceFloor)
       {
-         trade.PositionClose(tickets[k]);
+         PositionCloseWithComment(tickets[k], "Balance order");
          runningClosed += pls[k];
          balanceNow = balanceAfterClose;
          closedCount++;
@@ -1175,7 +1326,7 @@ void DoBalanceAll()
       volClose = MathFloor(volClose / lotStep) * lotStep;
       if(volClose < minLot) continue;
       if(volClose >= vols[k]) volClose = vols[k];
-      if(trade.PositionClosePartial(_Symbol, volClose, tickets[k]))
+      if(PositionClosePartialWithComment(tickets[k], volClose, "Balance order"))
       {
          double realizedPnL = (volClose / vols[k]) * pls[k];
          runningClosed += realizedPnL;
@@ -1200,37 +1351,45 @@ void ManageGridOrders()
       return;
    
    CancelStopOrdersOutsideBaseZone();
+   CancelSameSidePendingWhenNoOppositeSide();   // Bật/tắt: khi giá >=5 bậc và không có lệnh phía bên kia -> xóa lệnh chờ cùng phía
    RemoveDuplicateOrdersAtLevel();   // Mỗi bậc tối đa 1 lệnh mỗi loại
    double currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   bool skipSameSidePlace = ShouldCancelSameSidePending();   // Khi true: không đặt lệnh chờ cùng phía với giá
    // Đặt lệnh từ bậc gần giá gốc trở đi xa hơn: trước bậc trên base, sau bậc dưới base
    // 1. Bậc trên base (Buy Stop): từ bậc 1 (gần base) → bậc MaxGridLevels (xa base)
-   for(int levelNum = 1; levelNum <= MaxGridLevels; levelNum++)
+   if(!skipSameSidePlace || currentPrice <= basePrice)   // Chỉ đặt Buy Stop khi không skip HOẶC giá dưới base (giá trên base + skip = không đặt)
    {
-      int idxAbove = levelNum - 1;
-      double levelAbove = gridLevels[idxAbove];
-      if(levelAbove >= basePrice && levelAbove > currentPrice)   // Buy Stop: bậc trên base và trên giá
+      for(int levelNum = 1; levelNum <= MaxGridLevels; levelNum++)
       {
-         if(EnableAA)
-            EnsureOrderAtLevel(ORDER_TYPE_BUY_STOP, levelAbove, +levelNum);
-         if(EnableBB)
-            EnsureOrderAtLevelBB(true, levelAbove, +levelNum);
-         if(EnableCC)
-            EnsureOrderAtLevelCC(true, levelAbove, +levelNum);
+         int idxAbove = levelNum - 1;
+         double levelAbove = gridLevels[idxAbove];
+         if(levelAbove >= basePrice && levelAbove > currentPrice)   // Buy Stop: bậc trên base và trên giá
+         {
+            if(EnableAA)
+               EnsureOrderAtLevel(ORDER_TYPE_BUY_STOP, levelAbove, +levelNum);
+            if(EnableBB)
+               EnsureOrderAtLevelBB(true, levelAbove, +levelNum);
+            if(EnableCC)
+               EnsureOrderAtLevelCC(true, levelAbove, +levelNum);
+         }
       }
    }
    // 2. Bậc dưới base (Sell Stop): từ bậc 1 (gần base) → bậc MaxGridLevels (xa base)
-   for(int levelNum = 1; levelNum <= MaxGridLevels; levelNum++)
+   if(!skipSameSidePlace || currentPrice >= basePrice)   // Chỉ đặt Sell Stop khi không skip HOẶC giá trên base (giá dưới base + skip = không đặt)
    {
-      int idxBelow = MaxGridLevels + levelNum - 1;
-      double levelBelow = gridLevels[idxBelow];
-      if(levelBelow <= basePrice && levelBelow < currentPrice)   // Sell Stop: bậc dưới base và dưới giá
+      for(int levelNum = 1; levelNum <= MaxGridLevels; levelNum++)
       {
-         if(EnableAA)
-            EnsureOrderAtLevel(ORDER_TYPE_SELL_STOP, levelBelow, -levelNum);
-         if(EnableBB)
-            EnsureOrderAtLevelBB(false, levelBelow, -levelNum);
-         if(EnableCC)
-            EnsureOrderAtLevelCC(false, levelBelow, -levelNum);
+         int idxBelow = MaxGridLevels + levelNum - 1;
+         double levelBelow = gridLevels[idxBelow];
+         if(levelBelow <= basePrice && levelBelow < currentPrice)   // Sell Stop: bậc dưới base và dưới giá
+         {
+            if(EnableAA)
+               EnsureOrderAtLevel(ORDER_TYPE_SELL_STOP, levelBelow, -levelNum);
+            if(EnableBB)
+               EnsureOrderAtLevelBB(false, levelBelow, -levelNum);
+            if(EnableCC)
+               EnsureOrderAtLevelCC(false, levelBelow, -levelNum);
+         }
       }
    }
 }
