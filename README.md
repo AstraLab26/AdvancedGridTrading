@@ -17,8 +17,8 @@ MetaTrader 5 Expert Advisor for grid trading with three independent order types 
 
 | Parameter | Description |
 |-----------|-------------|
-| **Grid distance (pips)** | Distance between adjacent grid levels. |
-| **Max grid levels per side** | Maximum levels above and below the base line. |
+| **Grid distance (pips)** | Distance between adjacent grid levels. Default: 2000. |
+| **Max grid levels per side** | Maximum levels above and below the base line. Default: 30. |
 
 Levels are evenly spaced. No orders at the base; level 1 is closest to base, then level 2, 3, …  
 **Order placement:** When EA starts, orders are placed **from level closest to base outward** (level 1 first, then 2, 3, …). Buy Stop at levels **above the base line and above current price**; Sell Stop at levels **below the base line and below current price**. At most one AA, one BB, one CC per level (per enabled type); the EA supplements missing orders.
@@ -33,8 +33,6 @@ Input order: **Common** (Magic & Comment) first, then **AA**, **BB**, **CC** (ea
 
 - **Magic Number** – AA = this; BB = Magic + 1; CC = Magic + 2.
 - **Order comment** – Same comment for all orders (e.g. "EA Grid").
-- **Cancel same-side when no opposite** – When price is at least N levels from base and there are **no positions on the opposite side**, delete all **same-side** pending orders and do not place new same-side pendings.
-- **Cancel same-side min levels from base** – Minimum grid levels (price distance from base) to apply the above (e.g. 5 = only when price ≥ 5 levels from base).
 
 ### 2.2 AA (settings)
 
@@ -44,40 +42,40 @@ Input order: **Common** (Magic & Comment) first, then **AA**, **BB**, **CC** (ea
 - **Lot multiplier** – For Geometric: multiplier for level 2+.
 - **Max lot** – Maximum lot per order (0 = no limit).
 - **Take profit (pips)** – TP in pips (0 = off).
-- **Enable Balance** – Use pool to close losing AA.
-- **Threshold (USD)** – Close when (pool + loss) ≥ this and ≥ 0.
-- **Cooldown (sec)** – Wait time after closing (0 = none).
+- **Enable Balance** – Use pool to close losing AA when (pool + loss) ≥ **20 USD** (fixed) and ≥ 0; **300 s** (fixed) cooldown after closing. Balance runs only when price is at least **5 grid levels** from base.
 
 **Balance rules (AA + BB + CC)**
 
 - **Rule 1 – Opposite side:** Only close **losing** positions on the **opposite side of the base line** from current price: price above base → close Sells (below base); price below base → close Buys (above base).
 - **Lock Buy / Lock Sell (avoid wrong close):** When **price is above base**, **Buy positions are locked** – balance must **not** close any Buy. When **price is below base**, **Sell positions are locked** – balance must **not** close any Sell. This prevents the balance logic from closing the wrong side.
 - **Rule 2 – Farthest first:** Close losing orders **farthest from base first**, then closer. When same level: **AA → BB → CC**.
-- Each type (AA, BB, CC) uses its **own threshold** when checking (Pool + loss) ≥ threshold. Shared pool; **current price** must be **at least 5 grid levels** from base; cooldown after closing.
+- Threshold **20 USD** and cooldown **300 s** are fixed (no inputs) for AA, BB, and CC. Shared pool; **current price** must be at least **5 grid levels** from the base line; cooldown after closing.
 - **If pool is insufficient** for full close: EA **partially closes** (lot proportional to spendable $). Balance closes (full or partial) are sent with deal comment **"Balance order"**.
 
 ### 2.3 BB (settings)
 
-- Same structure as AA: Enable, lot, Fixed/Geometric, multiplier, max lot, Take profit, Enable Balance, Threshold (USD), Cooldown (sec). Balance uses unified logic (farthest first, same level: AA → BB → CC).
+- Same structure as AA: Enable, lot, Fixed/Geometric, multiplier, max lot, Take profit, Enable Balance (20 USD, 300 s cooldown). Balance uses unified logic (farthest first, same level: AA → BB → CC).
 
 ### 2.4 CC (settings)
 
-- Same logic as BB, separate parameters: Enable, lot, Fixed/Geometric, multiplier, max lot, Take profit, Enable Balance, Threshold (USD), Cooldown (sec). Balance uses unified logic (farthest first, same level: AA → BB → CC).
+- Same logic as BB, separate parameters: Enable, lot, Fixed/Geometric, multiplier, max lot, Take profit, Enable Balance (20 USD, 300 s cooldown). Balance uses unified logic (farthest first, same level: AA → BB → CC).
 
 ---
 
 ## 3. SESSION: Trailing profit
 
 - **Enable trailing** – When open profit (current session) ≥ threshold (USD), cancel all pending and start trailing SL (Buy/Sell) on open positions.
-- **Start trailing when open profit ≥ (USD)** – Threshold to enter trailing mode.
-- **Lock: close all when profit drops this % from peak** – If profit falls by this % from the session peak, close all and reset (new session).
-- **Pips: SL distance / trailing step** – SL distance from price and step for trailing updates.
+- **Start trailing when open profit ≥ (USD)** – Threshold to enter trailing mode. Default: 50.
+- **When profit drops: Lock profit | Return to initial** – **Lock profit:** when profit drops by X% from peak, close all and reset (new session). **Return to initial:** when profit drops by X%, exit trailing and return to initial state; allowed only if SL has not yet been placed at Point A.
+- **% (both modes)** – Trigger when open profit drops by this % (e.g. threshold 100 USD, 20% → trigger at 80 USD). Default: 20.
+- **Point A (pips)** – Base = grid level closest to current price **at the moment the trailing threshold is reached** (fixed for that trailing session). Buy: Point A = base + this many pips; Sell: Point A = base − this many pips. SL is placed at Point A only when price reaches base + (Point A pips) + one step; then SL trails by step. Default: 1500.
+- **Trailing step (pips)** – Each step of price movement moves SL by one step. Default: 1000.
 
 Only positions opened in the **current session** are used for trailing. Notifications are sent on reset.
 
-**Chart drawing:**
-- **Thin base line** – Horizontal line at base price (updates on EA reset).
-- **Vertical line** – Session start time (when EA started or last reset). Updates each time EA resets.
+**Breakeven reset (optional):** If enabled, when the farthest open level is at least X levels from base and (open P/L + closed TP in session minus lock) ≥ 0, the EA can reset (new session). Uses current session only.
+
+**Chart:** No lines are drawn (base, session start, realtime, or Point A lines are not displayed).
 
 ---
 
@@ -179,14 +177,14 @@ When enabled:
 
 **Case 1 – Price above base, close Sells below base (AA, BB, CC unified)**
 
-- Current price = **1200** (≥ 5 levels from base) → balance is allowed.
+- Current price = **1200** (≥ 5 grid levels from base) → balance is allowed.
 - Open positions: Buy 1010 (+profit), **Sell CC 940 (−120 USD)**, **Sell BB 970 (−80 USD)**, **Sell AA 990 (−50 USD)**.
 - **Opposite side + lock:** Price above base → close only **Sells below base**; **Buy is locked** (balance must not close any Buy).
 - **Order of closing (farthest first):** Close **Sell CC 940** first, then Sell BB 970, then Sell AA 990. Deals get comment **"Balance order"**.
 
 **Case 2 – Price below base, close Buys above base**
 
-- Current price = **850** (≥ 5 levels from base) → balance is allowed.
+- Current price = **850** (≥ 5 grid levels from base) → balance is allowed.
 - Open positions: Sell 980 (+profit), **Buy 1050 (−80 USD)**, **Buy 1100 (−150 USD)**.
 - **Opposite side + lock:** Price below base → close only **Buys above base** (1050, 1100); **Sell is locked** (balance must not close any Sell).
 - **Order of closing:** Farthest from base first → close **Buy 1100** (−150 USD) first. Deals get comment **"Balance order"**.
@@ -204,7 +202,7 @@ When enabled:
 
 **Case 5 – Price near base, no balance**
 
-- Current price = **1005** (fewer than 5 levels from base) → **balance does not run**, even if there are losing positions.
+- Current price = **1005** (fewer than 5 grid levels from base) → **balance does not run**, even if there are losing positions.
 
 ---
 
@@ -216,4 +214,4 @@ When enabled:
 
 ## Version
 
-2.06 – Advanced Grid Trading EA (Pro). AA, BB, CC; order placement from closest to base outward; balance rules (opposite side, farthest first; **lock Buy when price above base, lock Sell when price below base** to avoid closing wrong side); balance closes with deal comment **"Balance order"**; pool = **TP in current session minus lock in current session**; **locked $ cumulative across sessions, never reset, not used for balance**; Cancel same-side pending when no opposite (optional, configurable levels); at most one order per type per level; shared pool; unified balance (farthest first, same level: AA → BB → CC, partial close when pool insufficient); Max scale increase %; chart: thin base line + vertical session start line; trailing; Telegram notifications; Initial balance at EA startup never reset.
+2.07 – Advanced Grid Trading EA (Pro). AA, BB, CC; order placement from closest to base outward; balance rules (opposite side, farthest first; **lock Buy when price above base, lock Sell when price below base**); balance **20 USD / 300 s** fixed; price ≥ **5 levels** from base; pool = **TP in current session minus lock**; **locked $ cumulative, never reset**; trailing: **Point A** (base at threshold, SL at Point A when price reaches base + Point A pips + step, then trail by step); **Lock profit | Return to initial** when profit drops by X%; no chart lines; Telegram; Initial balance at EA startup never reset.
