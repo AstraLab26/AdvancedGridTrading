@@ -3,7 +3,7 @@
 //|              Advanced Grid Trading EA - Pro edition              |
 //+------------------------------------------------------------------+
 #property copyright "Advanced Grid EA"
-#property version   "2.04"
+#property version   "2.06"
 #property description "Advanced Grid Trading EA: per-order lot, scale by capital, trailing profit, session reset"
 // Telegram: Add https://api.telegram.org to Tools -> Options -> Expert Advisors -> Allow WebRequest for listed URL
 
@@ -12,12 +12,19 @@
 //--- Lot scale: 0=Fixed, 2=Geometric. Level 1 = LotSize; level 2+ = multiplier.
 enum ENUM_LOT_SCALE { LOT_FIXED = 0, LOT_GEOMETRIC = 2 };
 
+//--- Trailing: when profit drops (Lock = close all + reset; Return = exit trailing, replace pending, no close no reset)
+enum ENUM_TRAILING_DROP_MODE { TRAILING_MODE_LOCK = 0,      // Lock: profit drops X% from peak -> close all and reset
+                               TRAILING_MODE_RETURN = 1 };  // Return: profit drops to threshold -> exit trailing, replace pending
+
+#define BALANCE_THRESHOLD_USD_DEFAULT 20.0   // Balance AA/BB/CC: threshold USD (pool + loss >= this)
+#define BALANCE_COOLDOWN_SEC_DEFAULT 300     // Balance: cooldown (seconds) after close; 0=none
+
 //+------------------------------------------------------------------+
 //| 1. GRID                                                           |
 //+------------------------------------------------------------------+
 input group "=== 1. GRID ==="
 input double GridDistancePips = 2000.0;         // Grid distance (pips)
-input int MaxGridLevels = 40;                   // Max grid levels per side (above/below base line)
+input int MaxGridLevels = 30;                   // Max grid levels per side (above/below base line)
 
 //+------------------------------------------------------------------+
 //| 2. ORDERS                                                          |
@@ -27,30 +34,24 @@ input group "=== 2. ORDERS ==="
 input group "--- 2.1 Common (Magic & Comment) ---"
 input int MagicNumber = 123456;                // Magic Number (AA=this, BB=this+1, CC=this+2)
 input string CommentOrder = "EA Grid";          // Order comment (same for all)
-input bool EnableCancelSameSideWhenNoOpposite = false;  // Khi giá cách base đủ bậc và không có lệnh phía bên kia: xóa lệnh chờ cùng phía giá
-input int CancelSameSideMinLevelsFromBase = 5;          // Số bậc lưới tối thiểu (giá cách base >= này mới áp dụng xóa lệnh cùng phía)
 
 input group "--- 2.2 AA (settings) ---"
 input bool EnableAA = true;                     // Enable AA (Buy Stop + Sell Stop)
 input double LotSizeAA = 0.01;                  // AA: Lot size level 1
 input ENUM_LOT_SCALE AALotScale = LOT_GEOMETRIC; // AA: Fixed / Geometric
-input double LotMultAA = 1.3;                   // AA: Lot multiplier for level 2+ (Geometric)
-input double MaxLotAA = 2.0;                    // AA: Max lot per order (0=no limit)
+input double LotMultAA = 1.2;                   // AA: Lot multiplier for level 2+ (Geometric)
+input double MaxLotAA = 1.5;                    // AA: Max lot per order (0=no limit)
 input double TakeProfitPipsAA = 0.0;           // AA: Take profit (pips; 0=off)
-input bool EnableBalanceAAByBB = true;         // AA: Balance when session TP $ minus lock % is enough to cover the losing AA (pool + loss >= 0 and >= threshold)
-input double BalanceAAByBBThresholdUSD = 20.0;  // AA: Threshold USD. Close that AA when (pool + 1 AA loss) >= this value and >= 0
-input int BalanceAAByBBCooldownSec = 300;     // AA: Cooldown (seconds) after closing; 0=none. Price must be 5 levels from base
+input bool EnableBalanceAAByBB = true;         // AA: Balance when (pool + 1 AA loss) >= 20 USD; cooldown 300s. Price 5 levels from base
 
 input group "--- 2.3 BB (settings) ---"
 input bool EnableBB = true;                     // Enable BB (Buy Stop + Sell Stop)
 input double LotSizeBB = 0.05;                  // BB: Lot size level 1
 input ENUM_LOT_SCALE BBLotScale = LOT_GEOMETRIC; // BB: Fixed / Geometric
-input double LotMultBB = 1.1;                   // BB: Lot multiplier for level 2+ (Geometric)
-input double MaxLotBB = 2.0;                    // BB: Max lot per order (0=no limit)
+input double LotMultBB = 1.5;                   // BB: Lot multiplier for level 2+ (Geometric)
+input double MaxLotBB = 1.5;                    // BB: Max lot per order (0=no limit)
 input double TakeProfitPipsBB = 2000.0;         // BB: Take profit (pips; 0=off)
-input bool EnableBalanceBB = true;              // BB: Balance when session TP $ minus lock % is enough to cover the losing BB (pool + loss >= 0 and >= threshold)
-input double BalanceBBThresholdUSD = 20.0;      // BB: Threshold USD. Close BB when (pool + 1 BB loss) >= this and >= 0
-input int BalanceBBCooldownSec = 300;           // BB: Cooldown (seconds) after closing; 0=none. Price must be 5 levels from base
+input bool EnableBalanceBB = true;              // BB: Balance when (pool + 1 BB loss) >= 20 USD; cooldown 300s. Price 5 levels from base
 
 input group "--- 2.4 CC (settings) ---"
 input bool EnableCC = true;                      // Enable CC (Buy Stop + Sell Stop)
@@ -59,19 +60,20 @@ input ENUM_LOT_SCALE CCLotScale = LOT_FIXED;     // CC: Fixed / Geometric
 input double LotMultCC = 1.5;                    // CC: Lot multiplier for level 2+ (Geometric)
 input double MaxLotCC = 2.0;                     // CC: Max lot per order (0=no limit)
 input double TakeProfitPipsCC = 2000.0;          // CC: Take profit (pips; 0=off)
-input bool EnableBalanceCC = true;               // CC: Balance when session TP $ minus lock % is enough to cover the losing CC (pool + loss >= 0 and >= threshold)
-input double BalanceCCThresholdUSD = 20.0;       // CC: Threshold USD. Close CC when (pool + 1 CC loss) >= this value and >= 0
-input int BalanceCCCooldownSec = 300;            // CC: Cooldown (seconds) after closing; 0=none. Price must be 5 levels from base
+input bool EnableBalanceCC = true;               // CC: Balance when (pool + 1 CC loss) >= 20 USD; cooldown 300s. Price 5 levels from base
 
 //+------------------------------------------------------------------+
 //| 3. SESSION: Trailing profit (open orders only)                    |
 //+------------------------------------------------------------------+
 input group "=== 3. SESSION: Trailing profit ==="
 input bool EnableTrailingTotalProfit = true;    // Enable trailing: cancel pending, move SL when open profit >= threshold
-input double TrailingThresholdUSD = 200.0;     // Start trailing when open profit >= (USD)
-input double TrailingLockStepPct = 15.0;       // Lock: close all when profit drops this % from peak
-input double GongLaiPips = 1500.0;             // Pips: SL distance from price (Buy A / Sell A)
-input double GongLaiStepPips = 500.0;           // Pips: trailing step (update every step)
+input double TrailingThresholdUSD = 50.0;       // Start trailing when open profit >= (USD)
+input ENUM_TRAILING_DROP_MODE TrailingDropMode = TRAILING_MODE_RETURN;  // When profit drops: Lock profit | Return to initial
+input double TrailingDropPct = 20.0;           // % (both modes): trigger when profit drops X%. E.g. threshold 100 USD, 20% = trigger when drops to 80 USD
+input double TrailingPointAPips = 1500.0;       // Point A (pips): base = grid level closest to price at threshold. Buy: A = base + X pip; Sell: A = base - X pip. SL at A then trail by step
+input double GongLaiStepPips = 1000.0;          // Pips: trailing step (price moves 1 step -> SL trails 1 step)
+input bool EnableResetAtBreakevenWhenNearBase = false;  // Breakeven cut: max open level >= X levels and (open USD + closed TP minus lock) >= 0 -> Reset. Current session only
+input int ResetBreakevenMaxLevelsFromBase = 10;        // Min grid levels from base for open positions to apply breakeven reset (>= X levels)
 
 //+------------------------------------------------------------------+
 //| 4. CAPITAL % SCALING                                               |
@@ -103,21 +105,25 @@ int dgt;
 double basePrice;                               // Base price (base line)
 double gridLevels[];                            // Array of level prices (evenly spaced by GridDistancePips)
 double gridStep;                                // One grid step (price) = GridDistancePips, used for tolerance/snap
-// Pool = chỉ lệnh đạt TP trong phiên hiện tại - %/$ tiết kiệm (lock) trong phiên. Dùng cho cân bằng AA/BB/CC.
-double sessionClosedProfit = 0.0;               // Session: (TP profit - lock) trong phiên. Reset on EA reset. Pool chung cân bằng.
-double sessionLockedProfit = 0.0;               // Tiền tiết kiệm (lock) trong phiên hiện tại. Reset on EA reset.
-double sessionClosedProfitBB = 0.0;            // BB closed P/L in session (after lock). Dùng nội bộ khi cần.
-double sessionClosedProfitCC = 0.0;             // CC closed P/L in session (after lock). Dùng nội bộ khi cần.
-double sessionClosedProfitRemaining = 0.0;      // Pool còn lại trong tick (sau khi đóng lệnh lỗ AA/BB/CC). Mỗi tick = sessionClosedProfit.
+// Pool = TP profit in current session minus lock in session. Used for balance AA/BB/CC.
+double sessionClosedProfit = 0.0;               // Session: (TP profit - lock) in session. Reset on EA reset. Shared balance pool.
+double sessionLockedProfit = 0.0;               // Locked profit in current session. Reset on EA reset.
+double sessionClosedProfitBB = 0.0;            // BB closed P/L in session (after lock). Internal use.
+double sessionClosedProfitCC = 0.0;             // CC closed P/L in session (after lock). Internal use.
+double sessionClosedProfitRemaining = 0.0;      // Pool remaining in tick (after closing losing AA/BB/CC). Each tick = sessionClosedProfit.
 datetime lastResetTime = 0;                     // Last reset time (avoid double-count from orders just closed on reset)
 bool eaStoppedByTarget = false;                 // true = EA stopped placing new orders (Stop mode)
 double balanceGoc = 0.0;                       // Base capital for scaling (BaseCapitalUSD or balance at attach)
-double attachBalance = 0.0;                    // Vốn lúc EA attach lần đầu: KHÔNG reset. Dùng cho "Initial balance at EA startup" và "Change vs initial"
+double attachBalance = 0.0;                    // Balance when EA first attached: never reset. For "Initial balance at EA startup" and "Change vs initial"
 double sessionMultiplier = 1.0;                // Lot and TP multiplier by % growth vs balanceGoc (1.0 = no change)
 double sessionPeakProfit = 0.0;                // Session profit peak (for trailing profit lock)
 bool gongLaiMode = false;                      // true = trailing threshold reached, pendings cancelled, only trail SL on open positions
+bool trailingSLPlaced = false;                // SL already placed (at point A or trailed). Return mode only allowed when SL not yet placed.
 double lastBuyTrailPrice = 0.0;                // Last price when SL Buy was updated (trailing step)
 double lastSellTrailPrice = 0.0;               // Last price when SL Sell was updated (trailing step)
+double pointABaseLevel = 0.0;                 // Grid level chosen for point A (was used for yellow line draw)
+double trailingGocBuy = 0.0;                 // Buy base fixed at trailing threshold (grid level below price, closest)
+double trailingGocSell = 0.0;                // Sell base fixed at threshold (grid level above price, closest)
 double sessionPeakBalance = 0.0;               // Highest balance in session (for notification)
 double sessionMinBalance = 0.0;                // Lowest balance in session (max drawdown)
 double globalPeakBalance = 0.0;                // Highest balance since EA attach (not reset)
@@ -126,7 +132,7 @@ double sessionMaxSingleLot = 0.0;              // Largest single position lot in
 double sessionTotalLotAtMaxLot = 0.0;         // Total open lot when that max single lot occurred
 double globalMaxSingleLot = 0.0;              // Largest single lot since EA attach (not reset)
 double globalTotalLotAtMaxLot = 0.0;          // Total open lot at that time since EA attach (not reset)
-datetime sessionStartTime = 0;                // Phiên hiện tại: bắt đầu khi gắn EA hoặc EA reset. Chỉ tính P/L và lệnh từ thời điểm này.
+datetime sessionStartTime = 0;                // Current session: starts when EA attached or EA reset. Only P/L and orders from this time.
 double sessionStartBalance = 0.0;             // Balance at session start (for info panel and session %)
 int MagicAA = 0;                              // AA orders magic (set in OnInit)
 int MagicBB = 0;                              // BB orders magic (MagicNumber+1)
@@ -134,7 +140,7 @@ int MagicCC = 0;                              // CC orders magic (MagicNumber+2)
 datetime lastBalanceBBCloseTime = 0;          // Last time we closed losing BB (for cooldown)
 datetime lastBalanceCCCloseTime = 0;          // Last time we closed losing CC (for cooldown)
 datetime lastBalanceAAByBBCloseTime = 0;     // Last time we closed AA by BB balance (for cooldown)
-// % tiền tiết kiệm cộng dồn qua các phiên, KHÔNG reset. Số $ lock này không sử dụng cho cân bằng (pool = TP trong phiên - lock trong phiên).
+// Locked profit cumulative across sessions, never reset. This $ lock not used for balance (pool = TP in session - lock in session).
 double lockedProfitReserve = 0.0;            // Locked profit (X% of each profitable TP close); cumulative; not used for balance pool
 
 //+------------------------------------------------------------------+
@@ -152,7 +158,7 @@ void SwapDouble(double &a, double &b) { double t = a; a = b; b = t; }
 void SwapULong(ulong &a, ulong &b) { ulong t = a; a = b; b = t; }
 
 //+------------------------------------------------------------------+
-//| Position P/L = profit + swap (phí qua đêm). Commission (hoa hồng) chỉ có khi lệnh đóng (trong DEAL). |
+//| Position P/L = profit + swap (overnight fee). Commission only when position closed (in DEAL). |
 //+------------------------------------------------------------------+
 double GetPositionPnL(ulong ticket)
 {
@@ -183,11 +189,13 @@ int OnInit()
    lastResetTime = 0;
    eaStoppedByTarget = false;
    balanceGoc = (BaseCapitalUSD > 0) ? BaseCapitalUSD : AccountInfoDouble(ACCOUNT_BALANCE);
-   attachBalance = AccountInfoDouble(ACCOUNT_BALANCE);   // Vốn ban đầu: balance when EA is first added (for panel only)
+   attachBalance = AccountInfoDouble(ACCOUNT_BALANCE);   // Initial capital: balance when EA is first added (for panel only)
    sessionMultiplier = 1.0;
    UpdateSessionMultiplierFromAccountGrowth();
    sessionPeakProfit = 0.0;
    gongLaiMode = false;
+   trailingGocBuy = 0.0;
+   trailingGocSell = 0.0;
    lastBuyTrailPrice = 0.0;
    lastSellTrailPrice = 0.0;
    double currentBal = AccountInfoDouble(ACCOUNT_BALANCE);
@@ -205,13 +213,13 @@ int OnInit()
    Print("Advanced Grid Trading EA started. Session profit: 0 USD (open + closed from now)");
    Print("Symbol: ", _Symbol, " | Base: ", basePrice, " | Grid: ", GridDistancePips, " pips | Levels: ", ArraySize(gridLevels));
    if(EnableTrailingTotalProfit)
-      Print("Trailing: open orders only. Start when profit >= ", TrailingThresholdUSD, " USD, lock when down ", TrailingLockStepPct, "% from peak.");
+      Print("Trailing: open orders only. Start when profit >= ", TrailingThresholdUSD, " USD. Drop mode: ", EnumToString(TrailingDropMode), ", drop pct: ", TrailingDropPct, "%.");
    if(EnableAA && EnableBalanceAAByBB)
-      Print("Balance AA by BB: close 1 losing AA when (BB closed + that AA loss) >= ", BalanceAAByBBThresholdUSD, " USD. Session only. Price 5 levels. Cooldown ", BalanceAAByBBCooldownSec, "s.");
+      Print("Balance AA by BB: close 1 losing AA when (BB closed + that AA loss) >= ", BALANCE_THRESHOLD_USD_DEFAULT, " USD. Session only. Price 5 levels. Cooldown ", BALANCE_COOLDOWN_SEC_DEFAULT, "s.");
    if(EnableBB && EnableBalanceBB)
-      Print("Balance BB: when (BB closed + BB open opposite side) >= ", BalanceBBThresholdUSD, " USD, close losing BB on that side.");
+      Print("Balance BB: when (BB closed + BB open opposite side) >= ", BALANCE_THRESHOLD_USD_DEFAULT, " USD, close losing BB on that side.");
    if(EnableCC && EnableBalanceCC)
-      Print("Balance CC: when (CC closed + CC open opposite side) >= ", BalanceCCThresholdUSD, " USD, close losing CC on that side.");
+      Print("Balance CC: when (CC closed + CC open opposite side) >= ", BALANCE_THRESHOLD_USD_DEFAULT, " USD, close losing CC on that side.");
    if(EnableLockProfit && LockProfitPct > 0)
       Print("Lock profit: ", LockProfitPct, "% of each profitable close is reserved; this amount is not counted in AA/BB/CC balance logic.");
    if(EnableScaleByAccountGrowth)
@@ -226,8 +234,9 @@ int OnInit()
    
    // On start place orders at grid levels
    ManageGridOrders();
-   DrawBaseLine();           // Đường gốc mảnh tại basePrice
-   DrawSessionStartLine();   // Đường dọc lúc EA khởi động / reset
+   DrawBaseLine();           // Base line at basePrice (no draw, delete only)
+   DrawSessionStartLine();   // Session start vertical line (no draw, delete only)
+   DrawRealtimeLine();       // Realtime vertical line (no draw, delete only)
    return(INIT_SUCCEEDED);
 }
 
@@ -256,7 +265,7 @@ void OnTick()
    if(EnableResetNotification)
       UpdateSessionStatsForNotification();
    
-   // Gồng lãi: chỉ tính lệnh đang mở của phiên hiện tại (mở sau sessionStartTime)
+   // Trailing: only count open positions of current session (opened after sessionStartTime)
    double floating = 0.0;
    if(EnableTrailingTotalProfit)
    {
@@ -266,57 +275,138 @@ void OnTick()
          if(ticket <= 0 || !IsOurMagic(PositionGetInteger(POSITION_MAGIC)) || PositionGetString(POSITION_SYMBOL) != _Symbol)
             continue;
          if(sessionStartTime > 0 && (datetime)PositionGetInteger(POSITION_TIME) < sessionStartTime)
-            continue;   // Bỏ qua lệnh mở trước phiên hiện tại
+            continue;   // Skip positions opened before current session
          floating += PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
       }
    }
    double totalForTrailing = floating;
    double effectiveTrailingThreshold = (EnableScaleByAccountGrowth && TrailingThresholdUSD > 0) ? (TrailingThresholdUSD * sessionMultiplier) : TrailingThresholdUSD;
    
-   if(EnableTrailingTotalProfit && TrailingThresholdUSD > 0 && TrailingLockStepPct > 0)
+   if(EnableTrailingTotalProfit && TrailingThresholdUSD > 0)
    {
-      double effectiveLockStepUSD = effectiveTrailingThreshold * (MathMax(0.0, MathMin(100.0, TrailingLockStepPct)) / 100.0);
       if(totalForTrailing >= effectiveTrailingThreshold)
       {
          if(!gongLaiMode)
          {
             gongLaiMode = true;
+            trailingSLPlaced = false;   // SL not placed yet; Return mode can exit trailing when profit drops
             CancelAllPendingOrders();
-            Print("Trailing: open profit ", totalForTrailing, " USD (>= ", effectiveTrailingThreshold, "). Pending orders cancelled, trailing SL started.");
+            RemoveTPFromAllSessionPositions();   // Remove TP from all open positions (current session)
+            Print("Trailing: open profit ", totalForTrailing, " USD (>= ", effectiveTrailingThreshold, "). Pending cancelled, TP removed, trailing SL (point A) started.");
          }
          if(totalForTrailing > sessionPeakProfit)
             sessionPeakProfit = totalForTrailing;
-         if(totalForTrailing <= sessionPeakProfit - effectiveLockStepUSD)
+      }
+      // Both modes: trigger when profit drops X%. dropLevel = trailing threshold * (1 - X%). E.g. 100 USD, 10% -> trigger at 90 USD
+      if(gongLaiMode && TrailingDropPct > 0)
+      {
+         double pct = MathMax(0.0, MathMin(100.0, TrailingDropPct));
+         double dropLevel = effectiveTrailingThreshold * (1.0 - pct / 100.0);   // e.g. 100 USD, 10% -> 90 USD
+         if(totalForTrailing <= dropLevel)
          {
-            double peak = sessionPeakProfit;
-            CloseAllPositionsAndOrders();
-            UpdateSessionMultiplierFromAccountGrowth();
-            lastResetTime = TimeCurrent();
-            sessionClosedProfit = 0.0;
-            sessionLockedProfit = 0.0;
-            sessionClosedProfitBB = 0.0;
-            sessionClosedProfitCC = 0.0;
-            lastBalanceBBCloseTime = 0;
-            lastBalanceCCCloseTime = 0;
-            lastBalanceAAByBBCloseTime = 0;
-         sessionPeakProfit = 0.0;
-            gongLaiMode = false;
-            lastBuyTrailPrice = 0.0;
-            lastSellTrailPrice = 0.0;
-            basePrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-            InitializeGridLevels();
-            DrawBaseLine();           // Cập nhật đường gốc sau reset
-            DrawSessionStartLine();   // Cập nhật đường dọc thời gian reset
-            Print("Trailing profit: lock (peak ", peak, " USD, current ", totalForTrailing, " USD). Reset EA, new session.");
-            if(EnableResetNotification) { SendResetNotification("Trailing profit"); double b = AccountInfoDouble(ACCOUNT_BALANCE); sessionPeakBalance = b; sessionMinBalance = b; sessionMaxSingleLot = 0; sessionTotalLotAtMaxLot = 0; }
-            return;
+            if(TrailingDropMode == TRAILING_MODE_RETURN)
+            {
+               // Return only when SL not yet placed. Once SL placed, do not exit trailing (wait for SL hit).
+               // After exit: when profit reaches threshold again, trailing logic restarts (cancel pending, remove TP, trail from point A...).
+               if(!trailingSLPlaced)
+               {
+                  gongLaiMode = false;
+   trailingGocBuy = 0.0;
+   trailingGocSell = 0.0;
+                  trailingSLPlaced = false;
+                  sessionPeakProfit = 0.0;
+                  lastBuyTrailPrice = 0.0;
+                  lastSellTrailPrice = 0.0;
+                  Print("Trailing return: profit ", totalForTrailing, " USD <= drop level ", dropLevel, " (SL not placed). Exit trailing, re-place pending. When profit reaches threshold again, trailing will restart.");
+               }
+            }
+            else if(TrailingDropMode == TRAILING_MODE_LOCK)
+            {
+               // SL not placed: on drop threshold reset EA (close all, new session). SL placed: do not reset on drop, only trail (reset when SL hit).
+               if(!trailingSLPlaced)
+               {
+                  CloseAllPositionsAndOrders();
+                  UpdateSessionMultiplierFromAccountGrowth();
+                  lastResetTime = TimeCurrent();
+                  sessionClosedProfit = 0.0;
+                  sessionLockedProfit = 0.0;
+                  sessionClosedProfitBB = 0.0;
+                  sessionClosedProfitCC = 0.0;
+                  lastBalanceBBCloseTime = 0;
+                  lastBalanceCCCloseTime = 0;
+                  lastBalanceAAByBBCloseTime = 0;
+                  sessionPeakProfit = 0.0;
+                  gongLaiMode = false;
+   trailingGocBuy = 0.0;
+   trailingGocSell = 0.0;
+                  trailingSLPlaced = false;
+                  lastBuyTrailPrice = 0.0;
+                  lastSellTrailPrice = 0.0;
+                  basePrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+                  InitializeGridLevels();
+                  DrawBaseLine();
+                  DrawSessionStartLine();
+                  Print("Trailing profit: lock (SL not placed, profit ", totalForTrailing, " USD <= drop ", dropLevel, "). Reset EA, new session.");
+                  if(EnableResetNotification) { SendResetNotification("Trailing profit"); double b = AccountInfoDouble(ACCOUNT_BALANCE); sessionPeakBalance = b; sessionMinBalance = b; sessionMaxSingleLot = 0; sessionTotalLotAtMaxLot = 0; }
+                  return;
+               }
+               // SL placed: no reset, only trail (DoGongLaiTrailing); reset when price hits SL (posCount=0)
+            }
          }
       }
    }
    
+   // Breakeven cut: max open level >= X levels AND (open USD + closed TP minus lock) >= 0 -> EA Reset. Current session only.
+   if(!gongLaiMode && EnableResetAtBreakevenWhenNearBase && ResetBreakevenMaxLevelsFromBase > 0 && ArraySize(gridLevels) > 0)
+   {
+      double openFloating = 0.0;   // P/L of open positions, current session only
+      int maxLevelsFromBase = 0;
+      int sessionPosCount = 0;
+      for(int i = 0; i < PositionsTotal(); i++)
+      {
+         ulong ticket = PositionGetTicket(i);
+         if(ticket <= 0 || !IsOurMagic(PositionGetInteger(POSITION_MAGIC)) || PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+         if(sessionStartTime > 0 && (datetime)PositionGetInteger(POSITION_TIME) < sessionStartTime) continue;
+         sessionPosCount++;
+         double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+         openFloating += PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
+         double dist = MathAbs(openPrice - basePrice);
+         int lev = (int)MathRound(dist / gridStep);
+         if(lev > maxLevelsFromBase) maxLevelsFromBase = lev;
+      }
+      int xLevels = MathMax(1, MathMin(MaxGridLevels, ResetBreakevenMaxLevelsFromBase));
+      // sessionClosedProfit = TP closes in session minus lock (current session only)
+      if(sessionPosCount > 0 && maxLevelsFromBase >= xLevels && (openFloating + sessionClosedProfit) >= 0.0)
+      {
+         CloseAllPositionsAndOrders();
+         UpdateSessionMultiplierFromAccountGrowth();
+         lastResetTime = TimeCurrent();
+         sessionClosedProfit = 0.0;
+         sessionLockedProfit = 0.0;
+         sessionClosedProfitBB = 0.0;
+         sessionClosedProfitCC = 0.0;
+         lastBalanceBBCloseTime = 0;
+         lastBalanceCCCloseTime = 0;
+         lastBalanceAAByBBCloseTime = 0;
+         sessionPeakProfit = 0.0;
+         gongLaiMode = false;
+   trailingGocBuy = 0.0;
+   trailingGocSell = 0.0;
+         lastBuyTrailPrice = 0.0;
+         lastSellTrailPrice = 0.0;
+         basePrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+         InitializeGridLevels();
+         DrawBaseLine();
+         DrawSessionStartLine();
+         Print("Reset at breakeven: max level from base = ", maxLevelsFromBase, " <= ", xLevels, ", open+TP-lock = ", openFloating + sessionClosedProfit, " >= 0. New base = ", basePrice);
+         if(EnableResetNotification) { SendResetNotification("Breakeven"); double b = AccountInfoDouble(ACCOUNT_BALANCE); sessionPeakBalance = b; sessionMinBalance = b; sessionMaxSingleLot = 0; sessionTotalLotAtMaxLot = 0; }
+         return;
+      }
+   }
+
    if(gongLaiMode)
    {
-      int posCount = 0;   // Chỉ đếm lệnh phiên hiện tại
+      int posCount = 0;   // Count only current session positions
       for(int i = 0; i < PositionsTotal(); i++)
       {
          ulong ticket = PositionGetTicket(i);
@@ -325,12 +415,17 @@ void OnTick()
          if(sessionStartTime > 0 && (datetime)PositionGetInteger(POSITION_TIME) < sessionStartTime) continue;
          posCount++;
       }
+      // When price reverses and hits SL -> all positions closed -> posCount=0 -> EA reset (new session, new base)
       if(posCount == 0)
       {
-         CloseAllPositionsAndOrders();
+         CloseAllPositionsAndOrders();   // Clean up any remaining pending orders
          UpdateSessionMultiplierFromAccountGrowth();
          lastResetTime = TimeCurrent();
          gongLaiMode = false;
+   trailingGocBuy = 0.0;
+   trailingGocSell = 0.0;
+         trailingSLPlaced = false;
+         pointABaseLevel = 0.0;
          lastBuyTrailPrice = 0.0;
          lastSellTrailPrice = 0.0;
          sessionClosedProfit = 0.0;
@@ -340,19 +435,25 @@ void OnTick()
          lastBalanceBBCloseTime = 0;
          lastBalanceCCCloseTime = 0;
          lastBalanceAAByBBCloseTime = 0;
-      sessionPeakProfit = 0.0;
+         sessionPeakProfit = 0.0;
          basePrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
          InitializeGridLevels();
-         DrawBaseLine();           // Cập nhật đường gốc sau reset
-         DrawSessionStartLine();   // Cập nhật đường dọc thời gian reset
-         Print("Trailing: all positions closed (SL hit). Reset session, new base = ", basePrice, ". Placing orders again.");
-         if(EnableResetNotification) { SendResetNotification("Trailing profit"); double b = AccountInfoDouble(ACCOUNT_BALANCE); sessionPeakBalance = b; sessionMinBalance = b; sessionMaxSingleLot = 0; sessionTotalLotAtMaxLot = 0; }
+         DrawBaseLine();
+         DrawSessionStartLine();
+         DrawPointABaseLine();   // Remove point A line (pointABaseLevel=0)
+         Print("Trailing: price reversed, SL hit, all positions closed. EA reset, new base = ", basePrice, ". Placing orders again.");
+         if(EnableResetNotification) { SendResetNotification("Trailing profit (SL hit)"); double b = AccountInfoDouble(ACCOUNT_BALANCE); sessionPeakBalance = b; sessionMinBalance = b; sessionMaxSingleLot = 0; sessionTotalLotAtMaxLot = 0; }
       }
       else
          DoGongLaiTrailing();
    }
-   
-   // Pool chung AA+BB+CC đóng TP. Cân bằng thống nhất: đóng lệnh xa nhất (AA/BB/CC) trước, hết bậc xa rồi đến bậc gần.
+
+   // Point A line at chosen grid level (trailing only); delete when not trailing
+   DrawPointABaseLine();
+   // Realtime vertical dashed line
+   DrawRealtimeLine();
+
+   // Shared pool AA+BB+CC TP closes. Unified balance: close farthest (AA/BB/CC) first, then closer levels.
    sessionClosedProfitRemaining = sessionClosedProfit;
    DoBalanceAll();
    
@@ -361,9 +462,9 @@ void OnTick()
 
 //+------------------------------------------------------------------+
 //| On EA reset: update sessionMultiplier by account growth %         |
-//| Vốn tăng 100%, cài hàm số tăng 50% -> EA reset, các hàm số tăng 50%    |
+//| Capital +100%, scale 50% -> on reset, lot/TP/trailing scale +50%  |
 //| Formula: mult = 1 + growth × (AccountGrowthScalePct/100)         |
-//| Vốn base = BaseCapitalUSD (nếu >0) hoặc balance khi gắn EA. So sánh với vốn hiện tại. |
+//| Base capital = BaseCapitalUSD (if >0) or balance when EA attached. Compare to current balance. |
 //+------------------------------------------------------------------+
 void UpdateSessionMultiplierFromAccountGrowth()
 {
@@ -386,23 +487,18 @@ void DeleteCapitalGrowthLabel()
 {
    DeleteBaseLine();
    DeleteSessionStartLine();
+   DeleteRealtimeLine();
    ChartRedraw(ChartID());
 }
 
 //+------------------------------------------------------------------+
-//| Draw thin base line (đường gốc) on chart at basePrice            |
+//| Draw thin base line on chart at basePrice (no draw: only delete if exists) |
 //+------------------------------------------------------------------+
 void DrawBaseLine()
 {
    long chartId = ChartID();
-   if(ObjectFind(chartId, "GridBaseLine") < 0)
-      ObjectCreate(chartId, "GridBaseLine", OBJ_HLINE, 0, 0, basePrice);
-   ObjectSetDouble(chartId, "GridBaseLine", OBJPROP_PRICE, basePrice);
-   ObjectSetInteger(chartId, "GridBaseLine", OBJPROP_WIDTH, 1);
-   ObjectSetInteger(chartId, "GridBaseLine", OBJPROP_COLOR, clrDodgerBlue);
-   ObjectSetInteger(chartId, "GridBaseLine", OBJPROP_STYLE, STYLE_SOLID);
-   ObjectSetInteger(chartId, "GridBaseLine", OBJPROP_SELECTABLE, false);
-   ObjectSetInteger(chartId, "GridBaseLine", OBJPROP_BACK, false);
+   if(ObjectFind(chartId, "GridBaseLine") >= 0)
+      ObjectDelete(chartId, "GridBaseLine");
    ChartRedraw(chartId);
 }
 
@@ -412,27 +508,35 @@ void DeleteBaseLine()
 }
 
 //+------------------------------------------------------------------+
-//| Draw vertical line at session start (lúc EA khởi động / reset)     |
-//| Cập nhật mỗi lần EA reset khởi động lại                            |
+//| Draw vertical line at session start (EA start / reset). No draw: only delete if exists. |
 //+------------------------------------------------------------------+
 void DrawSessionStartLine()
 {
-   if(sessionStartTime <= 0) return;
    long chartId = ChartID();
-   if(ObjectFind(chartId, "GridSessionStart") < 0)
-      ObjectCreate(chartId, "GridSessionStart", OBJ_VLINE, 0, sessionStartTime, 0);
-   ObjectSetInteger(chartId, "GridSessionStart", OBJPROP_TIME, (long)sessionStartTime);
-   ObjectSetInteger(chartId, "GridSessionStart", OBJPROP_WIDTH, 1);
-   ObjectSetInteger(chartId, "GridSessionStart", OBJPROP_COLOR, clrSilver);
-   ObjectSetInteger(chartId, "GridSessionStart", OBJPROP_STYLE, STYLE_DOT);
-   ObjectSetInteger(chartId, "GridSessionStart", OBJPROP_SELECTABLE, false);
-   ObjectSetInteger(chartId, "GridSessionStart", OBJPROP_BACK, false);
+   if(ObjectFind(chartId, "GridSessionStart") >= 0)
+      ObjectDelete(chartId, "GridSessionStart");
    ChartRedraw(chartId);
 }
 
 void DeleteSessionStartLine()
 {
    ObjectDelete(ChartID(), "GridSessionStart");
+}
+
+//+------------------------------------------------------------------+
+//| Vertical dashed line at real time (updated each tick). No draw: only delete if exists. |
+//+------------------------------------------------------------------+
+void DrawRealtimeLine()
+{
+   long chartId = ChartID();
+   if(ObjectFind(chartId, "GridRealtimeLine") >= 0)
+      ObjectDelete(chartId, "GridRealtimeLine");
+   ChartRedraw(chartId);
+}
+
+void DeleteRealtimeLine()
+{
+   ObjectDelete(ChartID(), "GridRealtimeLine");
 }
 
 //+------------------------------------------------------------------+
@@ -468,7 +572,7 @@ void UpdateSessionStatsForNotification()
 }
 
 //+------------------------------------------------------------------+
-//| URL encode cho text gửi Telegram                                   |
+//| URL encode for Telegram text                                       |
 //+------------------------------------------------------------------+
 string UrlEncodeForTelegram(const string s)
 {
@@ -490,7 +594,7 @@ string UrlEncodeForTelegram(const string s)
 }
 
 //+------------------------------------------------------------------+
-//| Gửi tin nhắn lên Telegram qua Bot. Cần thêm https://api.telegram.org vào Allow WebRequest. |
+//| Send message to Telegram via Bot. Add https://api.telegram.org to Allow WebRequest. |
 //+------------------------------------------------------------------+
 void SendTelegramMessage(const string msg)
 {
@@ -505,7 +609,7 @@ void SendTelegramMessage(const string msg)
    ResetLastError();
    int res = WebRequest("POST", url, headers, 5000, post, result, resultHeaders);
    if(res != 200)
-      Print("Telegram: WebRequest failed, res=", res, " err=", GetLastError(), ". Thêm https://api.telegram.org vào Tools->Options->Expert Advisors->Allow WebRequest.");
+      Print("Telegram: WebRequest failed, res=", res, " err=", GetLastError(), ". Add https://api.telegram.org to Tools->Options->Expert Advisors->Allow WebRequest.");
 }
 
 //+------------------------------------------------------------------+
@@ -523,7 +627,7 @@ void SendResetNotification(const string reason)
 {
    if(!EnableResetNotification && !EnableTelegram) return;
    double bal = AccountInfoDouble(ACCOUNT_BALANCE);
-   // Change % = so với vốn lúc EA attach/start (attachBalance), KHÔNG so với vốn cơ sở (BaseCapitalUSD)
+   // Change % = vs balance when EA attached/started (attachBalance), NOT vs base capital (BaseCapitalUSD)
    double pct = (attachBalance > 0) ? ((bal - attachBalance) / attachBalance * 100.0) : 0;
    double maxLossUSD = globalPeakBalance - globalMinBalance;
    string msg = "EA RESET\n";
@@ -552,7 +656,7 @@ void SendResetNotification(const string reason)
 }
 
 //+------------------------------------------------------------------+
-//| Kiểm tra: lệnh âm và đối diện với giá hiện tại qua đường gốc (mới được cân bằng đóng) |
+//| Check: losing position on opposite side of current price vs base (eligible for balance close) |
 //+------------------------------------------------------------------+
 bool IsLosingOppositeSidePosition(ulong ticket, bool priceAboveBase)
 {
@@ -560,7 +664,7 @@ bool IsLosingOppositeSidePosition(ulong ticket, bool priceAboveBase)
    if(!IsOurMagic(PositionGetInteger(POSITION_MAGIC)) || PositionGetString(POSITION_SYMBOL) != _Symbol) return false;
    double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
    double pr = GetPositionPnL(ticket);
-   if(pr >= 0.0) return false;   // Chỉ lệnh âm
+   if(pr >= 0.0) return false;   // Only losing positions
    bool posBelowBase = (openPrice < basePrice);
    bool posAboveBase = (openPrice > basePrice);
    bool opposite = (priceAboveBase && posBelowBase) || (!priceAboveBase && posAboveBase);
@@ -568,20 +672,20 @@ bool IsLosingOppositeSidePosition(ulong ticket, bool priceAboveBase)
 }
 
 //+------------------------------------------------------------------+
-//| Khóa lệnh cho cân bằng: giá trên gốc → khóa Buy (không đóng Buy); giá dưới gốc → khóa Sell (không đóng Sell). Tránh đóng nhầm. |
+//| Lock for balance: price above base -> lock Buy (do not close Buy); price below base -> lock Sell (do not close Sell). Avoid wrong close. |
 //+------------------------------------------------------------------+
 bool IsPositionLockedForBalance(ulong ticket, bool priceAboveBase)
 {
    if(ticket == 0 || !PositionSelectByTicket(ticket)) return false;
    ulong posType = PositionGetInteger(POSITION_TYPE);
-   // Giá trên gốc → khóa Buy; giá dưới gốc → khóa Sell
-   if(priceAboveBase && posType == POSITION_TYPE_BUY) return true;   // Không được đóng Buy
-   if(!priceAboveBase && posType == POSITION_TYPE_SELL) return true; // Không được đóng Sell
+   // Price above base -> lock Buy; price below base -> lock Sell
+   if(priceAboveBase && posType == POSITION_TYPE_BUY) return true;   // Do not close Buy
+   if(!priceAboveBase && posType == POSITION_TYPE_SELL) return true;  // Do not close Sell
    return false;
 }
 
 //+------------------------------------------------------------------+
-//| Đóng position có ghi comment (dùng khi cân bằng: comment = "Balance order") |
+//| Close position with deal comment (used for balance: comment = "Balance order") |
 //+------------------------------------------------------------------+
 bool PositionCloseWithComment(ulong ticket, const string comment)
 {
@@ -646,75 +750,7 @@ void CloseAllPositionsAndOrders()
 }
 
 //+------------------------------------------------------------------+
-//| Cancel Buy Stop below base / Sell Stop above base when restriction is on |
-//+------------------------------------------------------------------+
-//+------------------------------------------------------------------+
-//| Trả về true khi: giá >= CancelSameSideMinLevelsFromBase bậc từ base VÀ không có position phía bên kia. |
-//+------------------------------------------------------------------+
-bool ShouldCancelSameSidePending()
-{
-   if(!EnableCancelSameSideWhenNoOpposite) return false;
-   int minLev = MathMax(1, MathMin(MaxGridLevels, CancelSameSideMinLevelsFromBase));
-   int idxMin = minLev - 1;
-   int nLevels = ArraySize(gridLevels);
-   if(nLevels < minLev) return false;
-   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   bool priceAboveBase = (bid > basePrice);
-   bool priceBelowBase = (bid < basePrice);
-   if(priceAboveBase)
-   {
-      if(bid < gridLevels[idxMin]) return false;   // Giá chưa đủ minLev bậc từ base
-      for(int i = 0; i < PositionsTotal(); i++)
-      {
-         ulong ticket = PositionGetTicket(i);
-         if(ticket <= 0) continue;
-         if(!IsOurMagic(PositionGetInteger(POSITION_MAGIC)) || PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-         if(sessionStartTime > 0 && (datetime)PositionGetInteger(POSITION_TIME) < sessionStartTime) continue;
-         if(PositionGetDouble(POSITION_PRICE_OPEN) < basePrice) return false;   // Có position phía dưới
-      }
-      return true;   // Không có position dưới base -> xóa Buy Stop trên base
-   }
-   if(priceBelowBase)
-   {
-      if(nLevels <= MaxGridLevels + idxMin) return false;
-      if(bid > gridLevels[MaxGridLevels + idxMin]) return false;
-      for(int i = 0; i < PositionsTotal(); i++)
-      {
-         ulong ticket = PositionGetTicket(i);
-         if(ticket <= 0) continue;
-         if(!IsOurMagic(PositionGetInteger(POSITION_MAGIC)) || PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-         if(sessionStartTime > 0 && (datetime)PositionGetInteger(POSITION_TIME) < sessionStartTime) continue;
-         if(PositionGetDouble(POSITION_PRICE_OPEN) > basePrice) return false;   // Có position phía trên
-      }
-      return true;   // Không có position trên base -> xóa Sell Stop dưới base
-   }
-   return false;
-}
-
-void CancelSameSidePendingWhenNoOppositeSide()
-{
-   if(!ShouldCancelSameSidePending()) return;
-   if(gongLaiMode) return;
-   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   bool priceAboveBase = (bid > basePrice);
-   int deleted = 0;
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
-      ulong ticket = OrderGetTicket(i);
-      if(ticket <= 0 || !IsOurMagic(OrderGetInteger(ORDER_MAGIC)) || OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
-      ENUM_ORDER_TYPE ot = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
-      double price = OrderGetDouble(ORDER_PRICE_OPEN);
-      if(priceAboveBase && ot == ORDER_TYPE_BUY_STOP && price > basePrice)
-         { trade.OrderDelete(ticket); deleted++; }
-      else if(!priceAboveBase && ot == ORDER_TYPE_SELL_STOP && price < basePrice)
-         { trade.OrderDelete(ticket); deleted++; }
-   }
-   if(deleted > 0)
-      Print("Cancel same-side: ", (priceAboveBase ? "no positions below" : "no positions above"), " -> deleted ", deleted, " pending.");
-}
-
-//+------------------------------------------------------------------+
-//| Hủy Buy Stop dưới đường gốc, Sell Stop trên đường gốc (lệnh chỉ đặt BS trên base, SS dưới base). |
+//| Cancel Buy Stop below base, Sell Stop above base (orders placed BS above base, SS below base only). |
 void CancelStopOrdersOutsideBaseZone()
 {
    for(int i = OrdersTotal() - 1; i >= 0; i--)
@@ -728,6 +764,24 @@ void CancelStopOrdersOutsideBaseZone()
          trade.OrderDelete(ticket);
       else if(ot == ORDER_TYPE_SELL_STOP && price > basePrice)
          trade.OrderDelete(ticket);
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Remove TP from all open positions in session (when entering trailing) |
+//+------------------------------------------------------------------+
+void RemoveTPFromAllSessionPositions()
+{
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket <= 0) continue;
+      if(!IsOurMagic(PositionGetInteger(POSITION_MAGIC)) || PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      if(sessionStartTime > 0 && (datetime)PositionGetInteger(POSITION_TIME) < sessionStartTime) continue;
+      double curSL = PositionGetDouble(POSITION_SL);
+      double curTP = PositionGetDouble(POSITION_TP);
+      if(curTP > 0)
+         trade.PositionModify(ticket, curSL, 0);
    }
 }
 
@@ -762,7 +816,7 @@ void CloseNegativePositions()
 
 //+------------------------------------------------------------------+
 //| After setting SL: price above base -> close all Sells; below base -> close all Buys. |
-//| onlyCurrentSession: true = chỉ đóng lệnh mở trong phiên hiện tại (gồng lãi). |
+//| onlyCurrentSession: true = close only positions opened in current session (trailing). |
 //+------------------------------------------------------------------+
 void CloseOppositeSidePositions(bool closeSells, bool onlyCurrentSession = false)
 {
@@ -780,44 +834,41 @@ void CloseOppositeSidePositions(bool closeSells, bool onlyCurrentSession = false
 }
 
 //+------------------------------------------------------------------+
-//| Trailing: SL Buy A = when price moves Step pip from Buy A set SL for all Buy at SL Buy A; Sell opposite |
+//| Trailing: Point A = SL level = base ± X pip (base = grid level closest to price at threshold, fixed). |
+//| Place SL at point A when price reaches (base + point A pip + step); each further step trails SL 1 step. SL hit -> EA reset. |
 //+------------------------------------------------------------------+
 void DoGongLaiTrailing()
 {
+   pointABaseLevel = 0.0;
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-   double pipSize = pnt * 10.0;
+   double pipSize = (dgt == 5 || dgt == 3) ? (pnt * 10.0) : pnt;
    double stepSize = GongLaiStepPips * pipSize;
 
    if(bid > basePrice)
    {
-      // Find Buy A: open Buy with smallest positive profit, get entry price
-      double buyAEntry = 0.0;
-      double minPosProfit = 1e9;
-      int buyCount = 0;
-      for(int i = 0; i < PositionsTotal(); i++)
+      // Buy base fixed at threshold: grid level (above base) below price and closest. Set once when entering trailing.
+      if(trailingGocBuy <= 0.0)
       {
-         ulong ticket = PositionGetTicket(i);
-         if(ticket <= 0) continue;
-         if(!IsOurMagic(PositionGetInteger(POSITION_MAGIC)) || PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-         if(PositionGetInteger(POSITION_TYPE) != POSITION_TYPE_BUY) continue;
-         if(sessionStartTime > 0 && (datetime)PositionGetInteger(POSITION_TIME) < sessionStartTime) continue;   // Chỉ phiên hiện tại
-         buyCount++;
-         double pr = PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
-         if(pr > 0 && pr < minPosProfit)
+         int nLevels = ArraySize(gridLevels);
+         for(int i = 0; i < MaxGridLevels && i < nLevels; i++)
          {
-            minPosProfit = pr;
-            buyAEntry = PositionGetDouble(POSITION_PRICE_OPEN);
+            double L = gridLevels[i];
+            if(L < bid && L > trailingGocBuy)
+               trailingGocBuy = L;
          }
       }
-      if(buyCount == 0 || minPosProfit >= 1e9 || buyAEntry <= 0) { lastSellTrailPrice = 0.0; return; }
-      // Number of steps price moved up from Buy A (1 step = Step pip). E.g. Buy A=1000, Step=50, price=1200 -> nSteps=4, SL Buy A=1150
-      double stepsUp = (bid - buyAEntry) / stepSize;
-      if(stepsUp < 1.0)
+      if(trailingGocBuy <= 0.0) { lastSellTrailPrice = 0.0; return; }
+      pointABaseLevel = trailingGocBuy;
+      // Point A = SL level = base + X pip (fixed).
+      double pointA_Buy = trailingGocBuy + TrailingPointAPips * pipSize;
+      // Place SL at point A when price reaches (base + point A pip + step); each further step trails SL up.
+      double distPointAPips = TrailingPointAPips * pipSize;
+      double firstTriggerDist = distPointAPips + stepSize;   // base + point A + 1 step
+      if((bid - trailingGocBuy) < firstTriggerDist)
          return;
-      int nSteps = (int)MathFloor(stepsUp);
-      // SL Buy A = Buy A entry + (nSteps-1)*step. At price 1200 set all Buy SL at 1150
-      double slBuyA = NormalizeDouble(buyAEntry + (nSteps - 1) * stepSize, dgt);
+      int stepsBeyondFirst = (int)MathFloor(((bid - trailingGocBuy) - firstTriggerDist) / stepSize);
+      double slBuyA = NormalizeDouble(pointA_Buy + stepsBeyondFirst * stepSize, dgt);
       if(slBuyA >= bid)
          return;
       for(int i = PositionsTotal() - 1; i >= 0; i--)
@@ -826,44 +877,42 @@ void DoGongLaiTrailing()
          if(ticket <= 0) continue;
          if(!IsOurMagic(PositionGetInteger(POSITION_MAGIC)) || PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
          if(PositionGetInteger(POSITION_TYPE) != POSITION_TYPE_BUY) continue;
-         if(sessionStartTime > 0 && (datetime)PositionGetInteger(POSITION_TIME) < sessionStartTime) continue;   // Chỉ phiên hiện tại
+         if(sessionStartTime > 0 && (datetime)PositionGetInteger(POSITION_TIME) < sessionStartTime) continue;   // Current session only
          double curSL = PositionGetDouble(POSITION_SL);
          double curTP = PositionGetDouble(POSITION_TP);
          if(slBuyA > curSL && slBuyA < bid)
+         {
             trade.PositionModify(ticket, slBuyA, curTP);
+            trailingSLPlaced = true;   // SL placed -> Return mode cannot exit trailing anymore
+         }
       }
       lastSellTrailPrice = 0.0;
-      CloseOppositeSidePositions(true, true);   // Chỉ phiên hiện tại
+      CloseOppositeSidePositions(true, true);   // Current session only
    }
    else if(ask < basePrice)
    {
-      // Find Sell A: open Sell with smallest positive profit, get entry price
-      double sellAEntry = 0.0;
-      double minPosProfit = 1e9;
-      int sellCount = 0;
-      for(int i = 0; i < PositionsTotal(); i++)
+      // Sell base fixed at threshold: grid level (below base) above price and closest. Set once when entering trailing.
+      if(trailingGocSell <= 0.0)
       {
-         ulong ticket = PositionGetTicket(i);
-         if(ticket <= 0) continue;
-         if(!IsOurMagic(PositionGetInteger(POSITION_MAGIC)) || PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-         if(PositionGetInteger(POSITION_TYPE) != POSITION_TYPE_SELL) continue;
-         if(sessionStartTime > 0 && (datetime)PositionGetInteger(POSITION_TIME) < sessionStartTime) continue;   // Chỉ phiên hiện tại
-         sellCount++;
-         double pr = PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
-         if(pr > 0 && pr < minPosProfit)
+         int nLevels = ArraySize(gridLevels);
+         for(int i = MaxGridLevels; i < nLevels; i++)
          {
-            minPosProfit = pr;
-            sellAEntry = PositionGetDouble(POSITION_PRICE_OPEN);
+            double L = gridLevels[i];
+            if(L > ask && (trailingGocSell <= 0.0 || L < trailingGocSell))
+               trailingGocSell = L;
          }
       }
-      if(sellCount == 0 || minPosProfit >= 1e9 || sellAEntry <= 0) { lastBuyTrailPrice = 0.0; return; }
-      // Number of steps price moved down from Sell A (1 step = Step pip)
-      double stepsDown = (sellAEntry - ask) / stepSize;
-      if(stepsDown < 1.0)
+      if(trailingGocSell <= 0.0) { lastBuyTrailPrice = 0.0; return; }
+      pointABaseLevel = trailingGocSell;
+      // Point A = SL level = base - X pip (fixed).
+      double pointA_Sell = trailingGocSell - TrailingPointAPips * pipSize;
+      // Place SL at point A when price reaches (base - point A pip - step); each further step trails SL down.
+      double distPointAPips = TrailingPointAPips * pipSize;
+      double firstTriggerDist = distPointAPips + stepSize;   // base - point A - 1 step (distance from base down)
+      if((trailingGocSell - ask) < firstTriggerDist)
          return;
-      int nSteps = (int)MathFloor(stepsDown);
-      // SL Sell A = Sell A entry - (nSteps - 1) * step (opposite to Buy)
-      double slSellA = NormalizeDouble(sellAEntry - (nSteps - 1) * stepSize, dgt);
+      int stepsBeyondFirst = (int)MathFloor(((trailingGocSell - ask) - firstTriggerDist) / stepSize);
+      double slSellA = NormalizeDouble(pointA_Sell - stepsBeyondFirst * stepSize, dgt);
       if(slSellA <= ask)
          return;
       for(int i = PositionsTotal() - 1; i >= 0; i--)
@@ -872,20 +921,34 @@ void DoGongLaiTrailing()
          if(ticket <= 0) continue;
          if(!IsOurMagic(PositionGetInteger(POSITION_MAGIC)) || PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
          if(PositionGetInteger(POSITION_TYPE) != POSITION_TYPE_SELL) continue;
-         if(sessionStartTime > 0 && (datetime)PositionGetInteger(POSITION_TIME) < sessionStartTime) continue;   // Chỉ phiên hiện tại
+         if(sessionStartTime > 0 && (datetime)PositionGetInteger(POSITION_TIME) < sessionStartTime) continue;   // Current session only
          double curSL = PositionGetDouble(POSITION_SL);
          double curTP = PositionGetDouble(POSITION_TP);
          if((curSL <= 0 || slSellA < curSL) && slSellA > ask)
+         {
             trade.PositionModify(ticket, slSellA, curTP);
+            trailingSLPlaced = true;   // SL placed -> Return mode cannot exit trailing anymore
+         }
       }
       lastBuyTrailPrice = 0.0;
-      CloseOppositeSidePositions(false, true);   // Chỉ phiên hiện tại
+      CloseOppositeSidePositions(false, true);   // Current session only
    }
    else
    {
       lastBuyTrailPrice = 0.0;
       lastSellTrailPrice = 0.0;
    }
+}
+
+//+------------------------------------------------------------------+
+//| Draw thin yellow line at grid level chosen for point A (trailing). No draw: only delete if exists. |
+//+------------------------------------------------------------------+
+void DrawPointABaseLine()
+{
+   long chartId = ChartID();
+   if(ObjectFind(chartId, "GridPointABase") >= 0)
+      ObjectDelete(chartId, "GridPointABase");
+   ChartRedraw(chartId);
 }
 
 //+------------------------------------------------------------------+
@@ -906,29 +969,29 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
    if(HistoryDealGetString(trans.deal, DEAL_SYMBOL) != _Symbol)
       return;
    long dealTime = (long)HistoryDealGetInteger(trans.deal, DEAL_TIME);
-   // Chỉ tính lệnh đóng trong phiên hiện tại (từ sessionStartTime). Gắn EA hoặc EA reset = phiên mới, sessionStartTime cập nhật.
+   // Only count deals closed in current session (from sessionStartTime). EA attach or EA reset = new session, sessionStartTime updated.
    if(sessionStartTime > 0 && dealTime < (long)sessionStartTime)
       return;
    if(lastResetTime > 0 && dealTime >= lastResetTime && dealTime <= lastResetTime + 15)
-      return;   // Tránh cộng trùng deal từ lệnh vừa đóng khi reset
-   // Chỉ tính lệnh đóng bởi TP (Take Profit). Lệnh đóng bởi SL / cắt tay / stop out không cộng vào pool cân bằng.
+      return;   // Avoid double-counting deals from positions just closed on reset
+   // Only count closes by TP (Take Profit). Closes by SL / manual / stop out do not add to balance pool.
    if(HistoryDealGetInteger(trans.deal, DEAL_REASON) != DEAL_REASON_TP)
       return;
    
-   // Closed deal P/L = profit + swap + commission (chỉ lệnh đạt TP trong phiên)
+   // Closed deal P/L = profit + swap + commission (TP closes in session only)
    double dealPnL = HistoryDealGetDouble(trans.deal, DEAL_PROFIT)
                   + HistoryDealGetDouble(trans.deal, DEAL_SWAP)
                   + HistoryDealGetDouble(trans.deal, DEAL_COMMISSION);
-   // Pool = TP trong phiên - lock trong phiên. lockedProfitReserve cộng dồn qua các phiên, không reset; $ lock không dùng cho cân bằng.
+   // Pool = TP in session - lock in session. lockedProfitReserve cumulative across sessions, never reset; $ lock not used for balance.
    if(EnableLockProfit && LockProfitPct > 0 && dealPnL > 0)
    {
       double pct = MathMin(100.0, MathMax(0.0, LockProfitPct));
       double locked = dealPnL * (pct / 100.0);
-      lockedProfitReserve += locked;   // Cộng dồn, không reset
-      sessionLockedProfit += locked;   // Lock trong phiên (để biết pool = TP - lock phiên)
+      lockedProfitReserve += locked;   // Cumulative, never reset
+      sessionLockedProfit += locked;   // Lock in session (so pool = TP - session lock)
       dealPnL -= locked;
    }
-   sessionClosedProfit += dealPnL;   // Pool cân bằng = TP phiên - lock phiên
+   sessionClosedProfit += dealPnL;   // Balance pool = session TP - session lock
    long dealMagic = HistoryDealGetInteger(trans.deal, DEAL_MAGIC);
    if(dealMagic == MagicBB)
       sessionClosedProfitBB += dealPnL;
@@ -954,9 +1017,9 @@ double GetGridLevelPrice(int levelIndex)
 }
 
 //+------------------------------------------------------------------+
-//| Lot đầu tiên (bậc 1): MỖI LOẠI LỆNH TÍNH RIÊNG. Tăng theo % vốn    |
-//| khi EnableScaleByAccountGrowth: lot = input × sessionMultiplier.   |
-//| AA: Buy Stop & Sell Stop dùng chung LotSizeAA.                      |
+//| First lot (level 1): EACH ORDER TYPE SEPARATE. Scale by % capital  |
+//| when EnableScaleByAccountGrowth: lot = input × sessionMultiplier.  |
+//| AA: Buy Stop & Sell Stop share LotSizeAA.                          |
 //+------------------------------------------------------------------+
 double GetBaseLotForOrderType(ENUM_ORDER_TYPE orderType)
 {
@@ -981,8 +1044,8 @@ ENUM_LOT_SCALE GetLotScaleForOrderType(ENUM_ORDER_TYPE orderType)
 }
 
 //+------------------------------------------------------------------+
-//| CÁCH TÍNH LOT: Bậc +1/-1 = lot đầu tiên. Bậc +2/-2, +3/-3... =     |
-//| gấp thếp theo hệ số. levelNum: +1..+n (trên), -1..-n (dưới).       |
+//| LOT CALC: Level +1/-1 = first lot. Level +2/-2, +3/-3... =         |
+//| Scale by multiplier. levelNum: +1..+n (above), -1..-n (below).    |
 //+------------------------------------------------------------------+
 double GetLotForLevel(ENUM_ORDER_TYPE orderType, int levelNum)
 {
@@ -991,14 +1054,14 @@ double GetLotForLevel(ENUM_ORDER_TYPE orderType, int levelNum)
    ENUM_LOT_SCALE scale = GetLotScaleForOrderType(orderType);
    double lot = baseLot;
    if(absLevel <= 1 || scale == LOT_FIXED)
-      lot = baseLot;   // Bậc +1/-1 = lot đầu tiên
+      lot = baseLot;   // Level +1/-1 = first lot
    else if(scale == LOT_GEOMETRIC)
-      lot = baseLot * MathPow(GetLotMultForOrderType(orderType), absLevel - 1);   // Bậc +2/-2... = gấp thếp
+      lot = baseLot * MathPow(GetLotMultForOrderType(orderType), absLevel - 1);   // Level +2/-2... = scaled
    
    double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
    double maxLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
    if(MaxLotAA > 0)
-      maxLot = MathMin(maxLot, MaxLotAA);   // Giới hạn lot lớn nhất AA (0 = không giới hạn)
+      maxLot = MathMin(maxLot, MaxLotAA);   // AA max lot cap (0 = no limit)
    double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
    lot = MathMax(minLot, MathMin(maxLot, lot));
    lot = MathFloor(lot / lotStep) * lotStep;
@@ -1016,7 +1079,7 @@ double GetTakeProfitPipsForOrderType(ENUM_ORDER_TYPE orderType)
 }
 
 //+------------------------------------------------------------------+
-//| BB: Lot bậc 1 (có scale theo vốn nếu bật)                        |
+//| BB: Lot level 1 (scaled by capital if enabled)                    |
 //+------------------------------------------------------------------+
 double GetBaseLotBB()
 {
@@ -1024,7 +1087,7 @@ double GetBaseLotBB()
 }
 
 //+------------------------------------------------------------------+
-//| BB: Lot theo bậc (Fixed hoặc Geometric), riêng AA                 |
+//| BB: Lot by level (Fixed or Geometric), separate from AA           |
 //+------------------------------------------------------------------+
 double GetLotForLevelBB(bool isBuyStop, int levelNum)
 {
@@ -1038,7 +1101,7 @@ double GetLotForLevelBB(bool isBuyStop, int levelNum)
    double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
    double maxLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
    if(MaxLotBB > 0)
-      maxLot = MathMin(maxLot, MaxLotBB);   // Giới hạn lot lớn nhất BB
+      maxLot = MathMin(maxLot, MaxLotBB);   // BB max lot cap
    double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
    lot = MathMax(minLot, MathMin(maxLot, lot));
    lot = MathFloor(lot / lotStep) * lotStep;
@@ -1052,7 +1115,7 @@ double GetTakeProfitPipsBB()
 }
 
 //+------------------------------------------------------------------+
-//| CC: Lot bậc 1 (có scale theo vốn nếu bật)                        |
+//| CC: Lot level 1 (scaled by capital if enabled)                    |
 //+------------------------------------------------------------------+
 double GetBaseLotCC()
 {
@@ -1060,7 +1123,7 @@ double GetBaseLotCC()
 }
 
 //+------------------------------------------------------------------+
-//| CC: Lot theo bậc (Fixed hoặc Geometric)                          |
+//| CC: Lot by level (Fixed or Geometric)                            |
 //+------------------------------------------------------------------+
 double GetLotForLevelCC(bool isBuyStop, int levelNum)
 {
@@ -1092,11 +1155,11 @@ double GetTakeProfitPipsCC()
 //+------------------------------------------------------------------+
 void InitializeGridLevels()
 {
-   // Phiên hiện tại = 0 và bắt đầu tính từ đây (gọi khi gắn EA hoặc EA reset tự động)
+   // Current session = 0 and start counting from here (called when EA attached or EA auto reset)
    sessionStartTime = TimeCurrent();
    double bal = AccountInfoDouble(ACCOUNT_BALANCE);
    sessionStartBalance = bal;
-   // attachBalance KHÔNG cập nhật ở đây - chỉ set 1 lần tại OnInit (vốn lúc đầu thêm EA)
+   // attachBalance NOT updated here - set once in OnInit (capital when EA first attached)
    gridStep = GridDistancePips * pnt * 10.0;   // One grid step (even)
    int totalLevels = MaxGridLevels * 2;
    
@@ -1110,8 +1173,8 @@ void InitializeGridLevels()
 
 //+------------------------------------------------------------------+
 //| Manage grid: place orders from level 1 (closest to base) outward  |
-//| GHI NHỚ BẬC LƯỚI: Đường gốc = bậc 0. Trên đường gốc = +1,+2,...+n. |
-//| Dưới đường gốc = -1,-2,...-n. EA đặt lệnh chờ theo thứ tự này.     |
+//| GRID LEVELS: Base line = level 0. Above base = +1,+2,...+n.        |
+//| Below base = -1,-2,...-n. EA places pending orders in this order. |
 //| Each level evenly spaced by gridStep.                             |
 //+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
@@ -1133,7 +1196,7 @@ bool PositionExistsAtLevelWithMagic(double priceLevel, long whichMagic)
 }
 
 //+------------------------------------------------------------------+
-//| Mỗi bậc: tối đa 1 lệnh mỗi loại (AA, BB, CC) theo input. Xóa lệnh chờ trùng; nếu đã có position tại bậc thì giữ 0 pending. |
+//| Per level: max 1 order per type (AA, BB, CC) per input. Remove duplicate pending; if position at level keep 0 pending. |
 //+------------------------------------------------------------------+
 void RemoveDuplicateOrdersAtLevel()
 {
@@ -1147,7 +1210,7 @@ void RemoveDuplicateOrdersAtLevel()
       double priceLevel = gridLevels[L];
       for(int m = 0; m < 3; m++)
       {
-         if(!enabled[m]) continue;   // Chỉ áp dụng cho loại đang bật
+         if(!enabled[m]) continue;   // Only for enabled type
          long whichMagic = magics[m];
          for(int side = 0; side < 2; side++)
          {
@@ -1191,30 +1254,31 @@ void RemoveDuplicateOrdersAtLevel()
 }
 
 //+------------------------------------------------------------------+
-//| Quy tắc cân bằng AA, BB, CC:                                      |
-//| Pool = chỉ lệnh đạt TP trong phiên hiện tại - %/$ tiết kiệm (lock) trong phiên. |
-//| 1. Chỉ đóng lệnh âm NGƯỢC PHÍA với giá hiện tại qua đường gốc:    |
-//|    - Giá trên base → đóng Sell (dưới base); khóa Buy (không đóng Buy). |
-//|    - Giá dưới base → đóng Buy (trên base); khóa Sell (không đóng Sell). |
-//| 2. Đóng lệnh âm XA đường gốc trước, rồi đến gần. Cùng bậc: AA→BB→CC |
-//| Pool chung, mỗi loại dùng ngưỡng riêng.                            |
+//| Balance rules for AA, BB, CC:                                    |
+//| Pool = TP in current session minus lock in session.               |
+//| 1. Only close losing positions on OPPOSITE side of current price vs base: |
+//|    - Price above base -> close Sell (below base); lock Buy (do not close Buy). |
+//|    - Price below base -> close Buy (above base); lock Sell (do not close Sell). |
+//| 2. Close losing positions FARTHEST from base first, then closer. Same level: AA->BB->CC |
+//| 3. Price must be >= 5 levels from base to run balance.             |
+//| Shared pool, each type uses own threshold.                         |
 //+------------------------------------------------------------------+
 void DoBalanceAll()
 {
-   bool anyBalance = (EnableAA && EnableBalanceAAByBB && BalanceAAByBBThresholdUSD > 0) ||
-                     (EnableBB && EnableBalanceBB && BalanceBBThresholdUSD > 0) ||
-                     (EnableCC && EnableBalanceCC && BalanceCCThresholdUSD > 0);
+   bool anyBalance = (EnableAA && EnableBalanceAAByBB && BALANCE_THRESHOLD_USD_DEFAULT > 0) ||
+                     (EnableBB && EnableBalanceBB && BALANCE_THRESHOLD_USD_DEFAULT > 0) ||
+                     (EnableCC && EnableBalanceCC && BALANCE_THRESHOLD_USD_DEFAULT > 0);
    if(!anyBalance)
       return;
    if(sessionClosedProfitRemaining < 0)
       return;
    int minCooldown = 0;
-   if(EnableAA && EnableBalanceAAByBB && BalanceAAByBBThresholdUSD > 0 && BalanceAAByBBCooldownSec > 0)
-      minCooldown = (minCooldown == 0) ? BalanceAAByBBCooldownSec : MathMin(minCooldown, BalanceAAByBBCooldownSec);
-   if(EnableBB && EnableBalanceBB && BalanceBBThresholdUSD > 0 && BalanceBBCooldownSec > 0)
-      minCooldown = (minCooldown == 0) ? BalanceBBCooldownSec : MathMin(minCooldown, BalanceBBCooldownSec);
-   if(EnableCC && EnableBalanceCC && BalanceCCThresholdUSD > 0 && BalanceCCCooldownSec > 0)
-      minCooldown = (minCooldown == 0) ? BalanceCCCooldownSec : MathMin(minCooldown, BalanceCCCooldownSec);
+   if(EnableAA && EnableBalanceAAByBB && BALANCE_THRESHOLD_USD_DEFAULT > 0 && BALANCE_COOLDOWN_SEC_DEFAULT > 0)
+      minCooldown = (minCooldown == 0) ? BALANCE_COOLDOWN_SEC_DEFAULT : MathMin(minCooldown, BALANCE_COOLDOWN_SEC_DEFAULT);
+   if(EnableBB && EnableBalanceBB && BALANCE_THRESHOLD_USD_DEFAULT > 0 && BALANCE_COOLDOWN_SEC_DEFAULT > 0)
+      minCooldown = (minCooldown == 0) ? BALANCE_COOLDOWN_SEC_DEFAULT : MathMin(minCooldown, BALANCE_COOLDOWN_SEC_DEFAULT);
+   if(EnableCC && EnableBalanceCC && BALANCE_THRESHOLD_USD_DEFAULT > 0 && BALANCE_COOLDOWN_SEC_DEFAULT > 0)
+      minCooldown = (minCooldown == 0) ? BALANCE_COOLDOWN_SEC_DEFAULT : MathMin(minCooldown, BALANCE_COOLDOWN_SEC_DEFAULT);
    datetime lastClose = MathMax(lastBalanceAAByBBCloseTime, MathMax(lastBalanceBBCloseTime, lastBalanceCCCloseTime));
    if(minCooldown > 0 && lastClose > 0 && (TimeCurrent() - lastClose) < minCooldown)
       return;
@@ -1222,16 +1286,19 @@ void DoBalanceAll()
    bool priceAboveBase = (bid > basePrice);
    bool priceBelowBase = (bid < basePrice);
    int nLevels = ArraySize(gridLevels);
+   // Price must be at least 5 levels from base to allow balance (fixed default)
+   int balMin = MathMax(1, MathMin(MaxGridLevels, 5));
+   int idxBal = balMin - 1;
    if(priceAboveBase)
    {
-      if(nLevels < 5 || bid < gridLevels[4])
+      if(nLevels <= idxBal || bid < gridLevels[idxBal])
          return;
    }
-   else
+   else if(priceBelowBase)
    {
-      if(nLevels <= MaxGridLevels + 4)
+      if(nLevels <= MaxGridLevels + idxBal)
          return;
-      if(bid > gridLevels[MaxGridLevels + 4])
+      if(bid > gridLevels[MaxGridLevels + idxBal])
          return;
    }
    ulong tickets[];
@@ -1244,7 +1311,7 @@ void DoBalanceAll()
    ArrayResize(types, 0);
    long magics[] = {MagicAA, MagicBB, MagicCC};
    bool enabled[] = {EnableAA && EnableBalanceAAByBB, EnableBB && EnableBalanceBB, EnableCC && EnableBalanceCC};
-   double thresholds[] = {BalanceAAByBBThresholdUSD, BalanceBBThresholdUSD, BalanceCCThresholdUSD};
+   double thresholds[] = {BALANCE_THRESHOLD_USD_DEFAULT, BALANCE_THRESHOLD_USD_DEFAULT, BALANCE_THRESHOLD_USD_DEFAULT};
    for(int t = 0; t < 3; t++)
    {
       if(!enabled[t] || thresholds[t] <= 0) continue;
@@ -1259,9 +1326,9 @@ void DoBalanceAll()
          double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
          double pr = GetPositionPnL(ticket);
          double vol = PositionGetDouble(POSITION_VOLUME);
-         // Chỉ đóng lệnh âm đối diện với giá hiện tại qua đường gốc (hàm kiểm tra)
+         // Only close losing position on opposite side of price vs base (check function)
          if(!IsLosingOppositeSidePosition(ticket, priceAboveBase)) continue;
-         // Khóa: giá trên gốc không đóng Buy, giá dưới gốc không đóng Sell (tránh đóng nhầm)
+         // Lock: price above base do not close Buy, price below base do not close Sell (avoid wrong close)
          if(IsPositionLockedForBalance(ticket, priceAboveBase)) continue;
          int n = ArraySize(tickets);
          ArrayResize(tickets, n + 1);
@@ -1278,7 +1345,7 @@ void DoBalanceAll()
    }
    int cnt = ArraySize(tickets);
    if(cnt == 0) return;
-   // Sắp xếp: xa đường gốc trước; cùng bậc thì ưu tiên AA → BB → CC
+   // Sort: farthest from base first; same level then AA -> BB -> CC
    for(int i = 0; i < cnt - 1; i++)
       for(int j = i + 1; j < cnt; j++)
       {
@@ -1286,7 +1353,7 @@ void DoBalanceAll()
          double dj = MathAbs(openPrices[j] - basePrice);
          bool swap = (dj > di);
          if(!swap && MathAbs(dj - di) < gridStep * 0.5 && types[j] < types[i])
-            swap = true;   // Cùng bậc: AA(0) trước BB(1) trước CC(2)
+            swap = true;   // Same level: AA(0) then BB(1) then CC(2)
          if(swap)
          {
             SwapDouble(openPrices[i], openPrices[j]);
@@ -1296,7 +1363,7 @@ void DoBalanceAll()
             int tt = types[i]; types[i] = types[j]; types[j] = tt;
          }
       }
-   // Sàn cân bằng: không dùng phần $ lock (lockedProfitReserve cộng dồn, không reset) để trả lỗ
+   // Balance pool: do not use $ lock (lockedProfitReserve cumulative, never reset) to cover loss
    double balanceFloor = sessionStartBalance + lockedProfitReserve;
    double balanceNow = AccountInfoDouble(ACCOUNT_BALANCE);
    double runningClosed = sessionClosedProfitRemaining;
@@ -1351,19 +1418,15 @@ void ManageGridOrders()
       return;
    
    CancelStopOrdersOutsideBaseZone();
-   CancelSameSidePendingWhenNoOppositeSide();   // Bật/tắt: khi giá >=5 bậc và không có lệnh phía bên kia -> xóa lệnh chờ cùng phía
-   RemoveDuplicateOrdersAtLevel();   // Mỗi bậc tối đa 1 lệnh mỗi loại
+   RemoveDuplicateOrdersAtLevel();   // Max 1 order per type per level
    double currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   bool skipSameSidePlace = ShouldCancelSameSidePending();   // Khi true: không đặt lệnh chờ cùng phía với giá
-   // Đặt lệnh từ bậc gần giá gốc trở đi xa hơn: trước bậc trên base, sau bậc dưới base
-   // 1. Bậc trên base (Buy Stop): từ bậc 1 (gần base) → bậc MaxGridLevels (xa base)
-   if(!skipSameSidePlace || currentPrice <= basePrice)   // Chỉ đặt Buy Stop khi không skip HOẶC giá dưới base (giá trên base + skip = không đặt)
-   {
-      for(int levelNum = 1; levelNum <= MaxGridLevels; levelNum++)
+   // Place orders from level nearest base outward: first levels above base, then below base
+   // 1. Levels above base (Buy Stop): level 1 (nearest base) to MaxGridLevels (farthest)
+   for(int levelNum = 1; levelNum <= MaxGridLevels; levelNum++)
       {
          int idxAbove = levelNum - 1;
          double levelAbove = gridLevels[idxAbove];
-         if(levelAbove >= basePrice && levelAbove > currentPrice)   // Buy Stop: bậc trên base và trên giá
+         if(levelAbove >= basePrice && levelAbove > currentPrice)   // Buy Stop: level above base and above price
          {
             if(EnableAA)
                EnsureOrderAtLevel(ORDER_TYPE_BUY_STOP, levelAbove, +levelNum);
@@ -1373,15 +1436,12 @@ void ManageGridOrders()
                EnsureOrderAtLevelCC(true, levelAbove, +levelNum);
          }
       }
-   }
-   // 2. Bậc dưới base (Sell Stop): từ bậc 1 (gần base) → bậc MaxGridLevels (xa base)
-   if(!skipSameSidePlace || currentPrice >= basePrice)   // Chỉ đặt Sell Stop khi không skip HOẶC giá trên base (giá dưới base + skip = không đặt)
-   {
-      for(int levelNum = 1; levelNum <= MaxGridLevels; levelNum++)
+   // 2. Levels below base (Sell Stop): level 1 (nearest base) to MaxGridLevels (farthest)
+   for(int levelNum = 1; levelNum <= MaxGridLevels; levelNum++)
       {
          int idxBelow = MaxGridLevels + levelNum - 1;
          double levelBelow = gridLevels[idxBelow];
-         if(levelBelow <= basePrice && levelBelow < currentPrice)   // Sell Stop: bậc dưới base và dưới giá
+         if(levelBelow <= basePrice && levelBelow < currentPrice)   // Sell Stop: level below base and below price
          {
             if(EnableAA)
                EnsureOrderAtLevel(ORDER_TYPE_SELL_STOP, levelBelow, -levelNum);
@@ -1391,11 +1451,10 @@ void ManageGridOrders()
                EnsureOrderAtLevelCC(false, levelBelow, -levelNum);
          }
       }
-   }
 }
 
 //+------------------------------------------------------------------+
-//| Ensure order at level - chỉ bổ sung khi thiếu (chưa có lệnh chờ và chưa có position cùng loại tại bậc). |
+//| Ensure order at level - add only when missing (no pending and no position of same type at level). |
 //+------------------------------------------------------------------+
 void EnsureOrderAtLevel(ENUM_ORDER_TYPE orderType, double priceLevel, int levelNum)
 {
@@ -1416,7 +1475,7 @@ void EnsureOrderAtLevel(ENUM_ORDER_TYPE orderType, double priceLevel, int levelN
 }
 
 //+------------------------------------------------------------------+
-//| BB: Ensure order at level - chỉ bổ sung khi thiếu (chưa có lệnh chờ BB và chưa có position BB tại bậc). |
+//| BB: Ensure order at level - add only when missing (no BB pending and no BB position at level). |
 //+------------------------------------------------------------------+
 void EnsureOrderAtLevelBB(bool isBuyStop, double priceLevel, int levelNum)
 {
@@ -1437,7 +1496,7 @@ void EnsureOrderAtLevelBB(bool isBuyStop, double priceLevel, int levelNum)
 }
 
 //+------------------------------------------------------------------+
-//| CC: Ensure order at level - chỉ bổ sung khi thiếu (chưa có lệnh chờ CC và chưa có position CC tại bậc). |
+//| CC: Ensure order at level - add only when missing (no CC pending and no CC position at level). |
 //+------------------------------------------------------------------+
 void EnsureOrderAtLevelCC(bool isBuyStop, double priceLevel, int levelNum)
 {
@@ -1522,7 +1581,7 @@ void AdjustPendingOrderToLevel(ulong ticket,
 }
 
 //+------------------------------------------------------------------+
-//| Kiểm tra có thể đặt lệnh tại bậc: mỗi bậc tối đa 1 lệnh mỗi loại (AA, BB, CC) theo input. whichMagic = magic của loại đang đặt. |
+//| Check if order can be placed at level: max 1 order per type (AA, BB, CC) per level per input. whichMagic = magic of type being placed. |
 //+------------------------------------------------------------------+
 bool CanPlaceOrderAtLevel(ENUM_ORDER_TYPE orderType, double priceLevel, long whichMagic)
 {
@@ -1553,7 +1612,7 @@ bool CanPlaceOrderAtLevel(ENUM_ORDER_TYPE orderType, double priceLevel, long whi
       if((pt == POSITION_TYPE_BUY) == isBuyOrder)
          countSameLevel++;
    }
-   return (countSameLevel < 1);   // Tối đa 1 lệnh (pending hoặc position) mỗi loại mỗi bậc
+   return (countSameLevel < 1);   // Max 1 order (pending or position) per type per level
 }
 
 //+------------------------------------------------------------------+
@@ -1590,7 +1649,7 @@ void PlacePendingOrder(ENUM_ORDER_TYPE orderType, double priceLevel, int levelNu
 }
 
 //+------------------------------------------------------------------+
-//| BB: Đặt lệnh chờ (Buy Stop hoặc Sell Stop), lot/TP riêng BB       |
+//| BB: Place pending order (Buy Stop or Sell Stop), lot/TP separate for BB |
 //+------------------------------------------------------------------+
 void PlacePendingOrderBB(bool isBuyStop, double priceLevel, int levelNum)
 {
@@ -1619,7 +1678,7 @@ void PlacePendingOrderBB(bool isBuyStop, double priceLevel, int levelNum)
 }
 
 //+------------------------------------------------------------------+
-//| CC: Đặt lệnh chờ (Buy Stop hoặc Sell Stop), lot/TP riêng CC       |
+//| CC: Place pending order (Buy Stop or Sell Stop), lot/TP separate for CC |
 //+------------------------------------------------------------------+
 void PlacePendingOrderCC(bool isBuyStop, double priceLevel, int levelNum)
 {
