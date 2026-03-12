@@ -3,7 +3,7 @@
 //|              Advanced Grid Trading EA - Pro edition              |
 //+------------------------------------------------------------------+
 #property copyright "Advanced Grid EA"
-#property version   "2.06"
+#property version   "2.07"
 #property description "Advanced Grid Trading EA: per-order lot, scale by capital, trailing profit, session reset"
 // Telegram: Add https://api.telegram.org to Tools -> Options -> Expert Advisors -> Allow WebRequest for listed URL
 
@@ -18,13 +18,17 @@ enum ENUM_TRAILING_DROP_MODE { TRAILING_MODE_LOCK = 0,      // Lock: profit drop
 
 #define BALANCE_THRESHOLD_USD_DEFAULT 20.0   // Balance AA/BB/CC: threshold USD (pool + loss >= this)
 #define BALANCE_COOLDOWN_SEC_DEFAULT 300     // Balance: cooldown (seconds) after close; 0=none
+#define BALANCE_PREPARE_LEVELS  3            // Min grid levels from base to select farthest opposite order (prepare only)
+#define BALANCE_EXECUTE_LEVELS  5            // Min grid levels from base to actually close (pool must be enough)
+#define COMMENT_BALANCE_PREPARE_TAG " | BP"  // Appended to CommentOrder on order selected for balance prepare (pending)
+#define OBJ_PREFIX_BALANCE_PREPARE "EA_BP_" // Chart object prefix for position prepare mark (position comment not modifiable)
 
 //+------------------------------------------------------------------+
 //| 1. GRID                                                           |
 //+------------------------------------------------------------------+
 input group "=== 1. GRID ==="
 input double GridDistancePips = 2000.0;         // Grid distance (pips)
-input int MaxGridLevels = 30;                   // Max grid levels per side (above/below base line)
+input int MaxGridLevels = 40;                   // Max grid levels per side (above/below base line)
 
 //+------------------------------------------------------------------+
 //| 2. ORDERS                                                          |
@@ -32,42 +36,50 @@ input int MaxGridLevels = 30;                   // Max grid levels per side (abo
 input group "=== 2. ORDERS ==="
 
 input group "--- 2.1 Common (Magic & Comment) ---"
-input int MagicNumber = 123456;                // Magic Number (AA=this, BB=this+1, CC=this+2)
+input int MagicNumber = 123456;                // Magic Number (AA=this, BB=this+1, CC=this+2, DD=this+3)
 input string CommentOrder = "EA Grid";          // Order comment (same for all)
 
 input group "--- 2.2 AA (settings) ---"
 input bool EnableAA = true;                     // Enable AA (Buy Stop + Sell Stop)
-input double LotSizeAA = 0.01;                  // AA: Lot size level 1
+input double LotSizeAA = 0.05;                  // AA: Lot size level 1
 input ENUM_LOT_SCALE AALotScale = LOT_GEOMETRIC; // AA: Fixed / Geometric
-input double LotMultAA = 1.2;                   // AA: Lot multiplier for level 2+ (Geometric)
+input double LotMultAA = 1.3;                   // AA: Lot multiplier for level 2+ (Geometric)
 input double MaxLotAA = 1.5;                    // AA: Max lot per order (0=no limit)
 input double TakeProfitPipsAA = 0.0;           // AA: Take profit (pips; 0=off)
-input bool EnableBalanceAAByBB = true;         // AA: Balance when (pool + 1 AA loss) >= 20 USD; cooldown 300s. Price 5 levels from base
+input bool EnableBalanceAAByBB = true;         // AA: Balance when (pool + loss) >= 20 USD; cooldown 300s. Prepare at 3 levels, execute at 5
 
 input group "--- 2.3 BB (settings) ---"
 input bool EnableBB = true;                     // Enable BB (Buy Stop + Sell Stop)
 input double LotSizeBB = 0.05;                  // BB: Lot size level 1
 input ENUM_LOT_SCALE BBLotScale = LOT_GEOMETRIC; // BB: Fixed / Geometric
-input double LotMultBB = 1.5;                   // BB: Lot multiplier for level 2+ (Geometric)
+input double LotMultBB = 1.3;                   // BB: Lot multiplier for level 2+ (Geometric)
 input double MaxLotBB = 1.5;                    // BB: Max lot per order (0=no limit)
 input double TakeProfitPipsBB = 2000.0;         // BB: Take profit (pips; 0=off)
-input bool EnableBalanceBB = true;              // BB: Balance when (pool + 1 BB loss) >= 20 USD; cooldown 300s. Price 5 levels from base
+input bool EnableBalanceBB = true;              // BB: Balance when (pool + loss) >= 20 USD; cooldown 300s. Prepare at 3 levels, execute at 5
 
 input group "--- 2.4 CC (settings) ---"
 input bool EnableCC = true;                      // Enable CC (Buy Stop + Sell Stop)
-input double LotSizeCC = 0.1;                    // CC: Lot size level 1
+input double LotSizeCC = 0.05;                    // CC: Lot size level 1
 input ENUM_LOT_SCALE CCLotScale = LOT_FIXED;     // CC: Fixed / Geometric
-input double LotMultCC = 1.5;                    // CC: Lot multiplier for level 2+ (Geometric)
+input double LotMultCC = 1.3;                    // CC: Lot multiplier for level 2+ (Geometric)
 input double MaxLotCC = 2.0;                     // CC: Max lot per order (0=no limit)
 input double TakeProfitPipsCC = 2000.0;          // CC: Take profit (pips; 0=off)
-input bool EnableBalanceCC = true;               // CC: Balance when (pool + 1 CC loss) >= 20 USD; cooldown 300s. Price 5 levels from base
+input bool EnableBalanceCC = true;               // CC: Balance when (pool + loss) >= 20 USD; cooldown 300s. Prepare at 3 levels, execute at 5
+
+input group "--- 2.5 DD (settings) ---"
+input bool EnableDD = true;                       // Enable DD (Sell Limit above base + Buy Limit below base; no balance)
+input double LotSizeDD = 0.01;                   // DD: Lot size level 1
+input ENUM_LOT_SCALE DDLotScale = LOT_FIXED;      // DD: Fixed / Geometric
+input double LotMultDD = 1.3;                    // DD: Lot multiplier for level 2+ (Geometric)
+input double MaxLotDD = 1.5;                     // DD: Max lot per order (0=no limit)
+input double TakeProfitPipsDD = 2000.0;          // DD: Take profit (pips; 0=off)
 
 //+------------------------------------------------------------------+
 //| 3. SESSION: Trailing profit (open orders only)                    |
 //+------------------------------------------------------------------+
 input group "=== 3. SESSION: Trailing profit ==="
 input bool EnableTrailingTotalProfit = true;    // Enable trailing: cancel pending, move SL when open profit >= threshold
-input double TrailingThresholdUSD = 50.0;       // Start trailing when open profit >= (USD)
+input double TrailingThresholdUSD = 200.0;       // Start trailing when open profit >= (USD)
 input ENUM_TRAILING_DROP_MODE TrailingDropMode = TRAILING_MODE_RETURN;  // When profit drops: Lock profit | Return to initial
 input double TrailingDropPct = 20.0;           // % (both modes): trigger when profit drops X%. E.g. threshold 100 USD, 20% = trigger when drops to 80 USD
 input double TrailingPointAPips = 1500.0;       // Point A (pips): base = grid level closest to price at threshold. Buy: A = base + X pip; Sell: A = base - X pip. SL at A then trail by step
@@ -80,7 +92,7 @@ input int ResetBreakevenMaxLevelsFromBase = 10;        // Min grid levels from b
 //+------------------------------------------------------------------+
 input group "=== 4. CAPITAL % SCALING ==="
 input bool EnableScaleByAccountGrowth = true;   // Scale lot, TP, SL, trailing by % capital growth
-input double BaseCapitalUSD = 50000.0;         // Base capital (USD): 0=balance when EA attached; >0=use this value
+input double BaseCapitalUSD = 100000.0;         // Base capital (USD): 0=balance when EA attached; >0=use this value
 input double AccountGrowthScalePct = 50.0;     // x% (max 100): capital +100% vs base -> multiply by x%
 input double MaxScaleIncreasePct = 100.0;      // Max increase % for lot/functions (0=no limit). E.g. 100 = lot/functions increase max 100%, mult capped at 2.0
 
@@ -95,7 +107,7 @@ input string TelegramBotToken = "";             // Bot Token (from @BotFather)
 input string TelegramChatID = "";               // Group Chat ID (negative number, e.g. -1001234567890)
 
 input group "=== 6. LOCK PROFIT (Save %) ==="
-input bool EnableLockProfit = true;            // Lock profit: reserve X% of each profitable TP close; reserved amount is not used for AA/BB/CC balance pool
+input bool EnableLockProfit = true;            // Lock profit: reserve X% of each profitable TP close (AA, BB, CC, DD); reserved amount is not used for balance pool
 input double LockProfitPct = 25.0;             // Lock this % of each profitable close (e.g. 25 = reserve 25 USD from 100 USD profit); 0-100
 
 //--- Global variables
@@ -105,11 +117,12 @@ int dgt;
 double basePrice;                               // Base price (base line)
 double gridLevels[];                            // Array of level prices (evenly spaced by GridDistancePips)
 double gridStep;                                // One grid step (price) = GridDistancePips, used for tolerance/snap
-// Pool = TP profit in current session minus lock in session. Used for balance AA/BB/CC.
+// Pool = TP profit in current session minus lock (AA+BB+CC+DD). Used for balance AA/BB/CC only (DD is not balanced).
 double sessionClosedProfit = 0.0;               // Session: (TP profit - lock) in session. Reset on EA reset. Shared balance pool.
 double sessionLockedProfit = 0.0;               // Locked profit in current session. Reset on EA reset.
 double sessionClosedProfitBB = 0.0;            // BB closed P/L in session (after lock). Internal use.
 double sessionClosedProfitCC = 0.0;             // CC closed P/L in session (after lock). Internal use.
+double sessionClosedProfitDD = 0.0;            // DD closed P/L in session (after lock). Internal use; DD TP is in pool but DD is not balanced.
 double sessionClosedProfitRemaining = 0.0;      // Pool remaining in tick (after closing losing AA/BB/CC). Each tick = sessionClosedProfit.
 datetime lastResetTime = 0;                     // Last reset time (avoid double-count from orders just closed on reset)
 bool eaStoppedByTarget = false;                 // true = EA stopped placing new orders (Stop mode)
@@ -137,9 +150,15 @@ double sessionStartBalance = 0.0;             // Balance at session start (for i
 int MagicAA = 0;                              // AA orders magic (set in OnInit)
 int MagicBB = 0;                              // BB orders magic (MagicNumber+1)
 int MagicCC = 0;                              // CC orders magic (MagicNumber+2)
+int MagicDD = 0;                              // DD orders magic (MagicNumber+3)
 datetime lastBalanceBBCloseTime = 0;          // Last time we closed losing BB (for cooldown)
 datetime lastBalanceCCCloseTime = 0;          // Last time we closed losing CC (for cooldown)
 datetime lastBalanceAAByBBCloseTime = 0;     // Last time we closed AA by BB balance (for cooldown)
+ulong balancePreparedTicket = 0;             // Ticket selected for balance (farthest opposite); cleared if price returns to base
+int balancePrepareDirection = 0;             // 0=none, +1=price above base (prepare Sells below), -1=price below base (prepare Buys above)
+double balanceSelectedLevelPrice = 0.0;      // Ghi nhớ: mức giá bậc lưới được chọn cho cân bằng (chỉ đóng lệnh tại bậc này)
+ulong balanceSelectedTickets[];              // Đánh dấu: danh sách ticket lệnh được chọn để chuẩn bị cân bằng (1 bậc xa nhất)
+ulong balanceMarkedTickets[];                // Legacy: dùng khi clear chart objects
 // Locked profit cumulative across sessions, never reset. This $ lock not used for balance (pool = TP in session - lock in session).
 double lockedProfitReserve = 0.0;            // Locked profit (X% of each profitable TP close); cumulative; not used for balance pool
 
@@ -148,7 +167,7 @@ double lockedProfitReserve = 0.0;            // Locked profit (X% of each profit
 //+------------------------------------------------------------------+
 bool IsOurMagic(long magic)
 {
-   return (magic == MagicAA || magic == MagicBB || magic == MagicCC);
+   return (magic == MagicAA || magic == MagicBB || magic == MagicCC || magic == MagicDD);
 }
 
 //+------------------------------------------------------------------+
@@ -174,6 +193,7 @@ int OnInit()
    MagicAA = MagicNumber;
    MagicBB = MagicNumber + 1;
    MagicCC = MagicNumber + 2;
+   MagicDD = MagicNumber + 3;
    trade.SetExpertMagicNumber(MagicAA);
    dgt = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
    pnt = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
@@ -183,9 +203,13 @@ int OnInit()
    sessionLockedProfit = 0.0;
    sessionClosedProfitBB = 0.0;
    sessionClosedProfitCC = 0.0;
+   sessionClosedProfitDD = 0.0;
    lastBalanceBBCloseTime = 0;
    lastBalanceCCCloseTime = 0;
    lastBalanceAAByBBCloseTime = 0;
+   balanceSelectedLevelPrice = 0.0;
+   ArrayResize(balanceSelectedTickets, 0);
+   ArrayResize(balanceMarkedTickets, 0);
    lastResetTime = 0;
    eaStoppedByTarget = false;
    balanceGoc = (BaseCapitalUSD > 0) ? BaseCapitalUSD : AccountInfoDouble(ACCOUNT_BALANCE);
@@ -221,7 +245,7 @@ int OnInit()
    if(EnableCC && EnableBalanceCC)
       Print("Balance CC: when (CC closed + CC open opposite side) >= ", BALANCE_THRESHOLD_USD_DEFAULT, " USD, close losing CC on that side.");
    if(EnableLockProfit && LockProfitPct > 0)
-      Print("Lock profit: ", LockProfitPct, "% of each profitable close is reserved; this amount is not counted in AA/BB/CC balance logic.");
+      Print("Lock profit: ", LockProfitPct, "% of each profitable close (AA, BB, CC, DD) is reserved; this amount is not counted in balance pool.");
    if(EnableScaleByAccountGrowth)
       Print("Base capital = ", balanceGoc, " USD", BaseCapitalUSD > 0 ? " (manual)" : " (balance at attach)", ". Lot/TP/SL/Trailing x ", AccountGrowthScalePct, "% growth. mult=", sessionMultiplier);
    if(EnableAA)
@@ -230,6 +254,8 @@ int OnInit()
       Print("BB (BuyStop+SellStop) L1,L2,L3: ", GetLotForLevelBB(true,1), ",", GetLotForLevelBB(true,2), ",", GetLotForLevelBB(true,3));
    if(EnableCC)
       Print("CC (BuyStop+SellStop) L1,L2,L3: ", GetLotForLevelCC(true,1), ",", GetLotForLevelCC(true,2), ",", GetLotForLevelCC(true,3));
+   if(EnableDD)
+      Print("DD (SellLimit above + BuyLimit below) L1,L2,L3: ", GetLotForLevelDD(true,1), ",", GetLotForLevelDD(true,2), ",", GetLotForLevelDD(true,3));
    Print("========================================");
    
    // On start place orders at grid levels
@@ -251,6 +277,7 @@ void OnDeinit(const int reason)
       SendResetNotification("EA stopped (reason: " + IntegerToString(reason) + ")");
    }
    DeleteCapitalGrowthLabel();
+   ObjectsDeleteAll(0, OBJ_PREFIX_BALANCE_PREPARE);
    Print("Advanced Grid Trading EA stopped. Reason: ", reason);
 }
 
@@ -332,16 +359,19 @@ void OnTick()
                   sessionLockedProfit = 0.0;
                   sessionClosedProfitBB = 0.0;
                   sessionClosedProfitCC = 0.0;
+                  sessionClosedProfitDD = 0.0;
                   lastBalanceBBCloseTime = 0;
                   lastBalanceCCCloseTime = 0;
                   lastBalanceAAByBBCloseTime = 0;
                   sessionPeakProfit = 0.0;
                   gongLaiMode = false;
-   trailingGocBuy = 0.0;
-   trailingGocSell = 0.0;
+                  trailingGocBuy = 0.0;
+                  trailingGocSell = 0.0;
                   trailingSLPlaced = false;
                   lastBuyTrailPrice = 0.0;
                   lastSellTrailPrice = 0.0;
+                  ClearBalanceSelection();          // Reset đánh dấu lệnh chọn khi sang phiên mới
+                  balancePrepareDirection = 0;
                   basePrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
                   InitializeGridLevels();
                   DrawBaseLine();
@@ -385,15 +415,18 @@ void OnTick()
          sessionLockedProfit = 0.0;
          sessionClosedProfitBB = 0.0;
          sessionClosedProfitCC = 0.0;
+         sessionClosedProfitDD = 0.0;
          lastBalanceBBCloseTime = 0;
          lastBalanceCCCloseTime = 0;
          lastBalanceAAByBBCloseTime = 0;
          sessionPeakProfit = 0.0;
          gongLaiMode = false;
-   trailingGocBuy = 0.0;
-   trailingGocSell = 0.0;
+         trailingGocBuy = 0.0;
+         trailingGocSell = 0.0;
          lastBuyTrailPrice = 0.0;
          lastSellTrailPrice = 0.0;
+         ClearBalanceSelection();          // Reset đánh dấu lệnh chọn khi sang phiên mới (breakeven reset)
+         balancePrepareDirection = 0;
          basePrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
          InitializeGridLevels();
          DrawBaseLine();
@@ -422,8 +455,8 @@ void OnTick()
          UpdateSessionMultiplierFromAccountGrowth();
          lastResetTime = TimeCurrent();
          gongLaiMode = false;
-   trailingGocBuy = 0.0;
-   trailingGocSell = 0.0;
+         trailingGocBuy = 0.0;
+         trailingGocSell = 0.0;
          trailingSLPlaced = false;
          pointABaseLevel = 0.0;
          lastBuyTrailPrice = 0.0;
@@ -432,10 +465,13 @@ void OnTick()
          sessionLockedProfit = 0.0;
          sessionClosedProfitBB = 0.0;
          sessionClosedProfitCC = 0.0;
+         sessionClosedProfitDD = 0.0;
          lastBalanceBBCloseTime = 0;
          lastBalanceCCCloseTime = 0;
          lastBalanceAAByBBCloseTime = 0;
          sessionPeakProfit = 0.0;
+         ClearBalanceSelection();          // Reset đánh dấu lệnh chọn khi trailing SL hit (phiên mới)
+         balancePrepareDirection = 0;
          basePrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
          InitializeGridLevels();
          DrawBaseLine();
@@ -627,12 +663,15 @@ void SendResetNotification(const string reason)
 {
    if(!EnableResetNotification && !EnableTelegram) return;
    double bal = AccountInfoDouble(ACCOUNT_BALANCE);
+   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   int symDigits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
    // Change % = vs balance when EA attached/started (attachBalance), NOT vs base capital (BaseCapitalUSD)
    double pct = (attachBalance > 0) ? ((bal - attachBalance) / attachBalance * 100.0) : 0;
    double maxLossUSD = globalPeakBalance - globalMinBalance;
    string msg = "EA RESET\n";
    msg += "Chart: " + _Symbol + "\n";
-   msg += "Reason: " + reason + "\n\n";
+   msg += "Reason: " + reason + "\n";
+   msg += "Price at reset: " + DoubleToString(bid, symDigits) + "\n\n";
    msg += "--- SETTINGS ---\n";
    msg += "Initial balance at EA startup: " + DoubleToString(attachBalance, 2) + " USD\n";
    if(BaseCapitalUSD == 0)
@@ -728,6 +767,158 @@ bool PositionClosePartialWithComment(ulong ticket, double volumeClose, const str
    if(!OrderSend(req, res))
       return false;
    return (res.retcode == TRADE_RETCODE_DONE || res.retcode == TRADE_RETCODE_PLACED);
+}
+
+//+------------------------------------------------------------------+
+//| Strip balance prepare tag from comment if present                 |
+//+------------------------------------------------------------------+
+string CommentWithoutBalancePrepare(const string cmt)
+{
+   int p = StringFind(cmt, COMMENT_BALANCE_PREPARE_TAG);
+   if(p >= 0)
+      return StringSubstr(cmt, 0, p);
+   return cmt;
+}
+
+//+------------------------------------------------------------------+
+//| Clear prepare mark: delete chart label (only positions were marked) |
+//+------------------------------------------------------------------+
+void ClearBalancePrepareMark(ulong ticket)
+{
+   if(ticket == 0) return;
+   string objName = OBJ_PREFIX_BALANCE_PREPARE + IntegerToString(ticket);
+   if(ObjectFind(0, objName) >= 0)
+      ObjectDelete(0, objName);
+}
+
+//+------------------------------------------------------------------+
+//| Chart label: "Lệnh được chọn" + Comment hiển thị "Lệnh được chọn"  |
+//| (Position comment không sửa được trong MT5 nên hiển thị trên nhãn)  |
+//+------------------------------------------------------------------+
+void SetBalancePrepareChartLabel(ulong ticket, double priceLevel, datetime timeVal)
+{
+   string objName = OBJ_PREFIX_BALANCE_PREPARE + IntegerToString(ticket);
+   if(ObjectFind(0, objName) < 0)
+   {
+      ObjectCreate(0, objName, OBJ_TEXT, 0, timeVal, priceLevel);
+      ObjectSetInteger(0, objName, OBJPROP_COLOR, clrDodgerBlue);
+      ObjectSetInteger(0, objName, OBJPROP_FONTSIZE, 9);
+      ObjectSetInteger(0, objName, OBJPROP_ANCHOR, ANCHOR_LEFT_LOWER);
+      ObjectSetInteger(0, objName, OBJPROP_BACK, false);
+      ObjectSetInteger(0, objName, OBJPROP_SELECTABLE, false);
+   }
+   else
+   {
+      ObjectSetDouble(0, objName, OBJPROP_PRICE, priceLevel);
+      ObjectSetInteger(0, objName, OBJPROP_TIME, (long)timeVal);
+   }
+   ObjectSetString(0, objName, OBJPROP_TEXT, "Lệnh được chọn");
+   ObjectSetString(0, objName, OBJPROP_FONT, "Arial");
+   ChartRedraw(0);
+}
+
+//+------------------------------------------------------------------+
+//| Set prepare mark on position only (lệnh đang mở). Chart label.   |
+//| Pending orders are not selected for balance prepare.              |
+//+------------------------------------------------------------------+
+void SetBalancePrepareMark(ulong ticket)
+{
+   if(ticket == 0) return;
+   if(!PositionSelectByTicket(ticket)) return;
+   double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+   datetime t = (datetime)PositionGetInteger(POSITION_TIME);
+   SetBalancePrepareChartLabel(ticket, openPrice, t);
+}
+
+//+------------------------------------------------------------------+
+//| Clear all BP marks (before remarking next level)                   |
+//+------------------------------------------------------------------+
+void ClearAllBalancePrepareMarks()
+{
+   for(int i = 0; i < ArraySize(balanceMarkedTickets); i++)
+      if(balanceMarkedTickets[i] > 0)
+         ClearBalancePrepareMark(balanceMarkedTickets[i]);
+   ArrayResize(balanceMarkedTickets, 0);
+}
+
+//+------------------------------------------------------------------+
+//| Append ticket to balanceMarkedTickets if not already present       |
+//+------------------------------------------------------------------+
+void AppendMarkedTicket(ulong ticket)
+{
+   if(ticket == 0) return;
+   for(int i = 0; i < ArraySize(balanceMarkedTickets); i++)
+      if(balanceMarkedTickets[i] == ticket) return;
+   int n = ArraySize(balanceMarkedTickets);
+   ArrayResize(balanceMarkedTickets, n + 1);
+   balanceMarkedTickets[n] = ticket;
+}
+
+//+------------------------------------------------------------------+
+//| Chỉ 1 bậc lưới: chọn và nhãn (comment) chỉ lệnh mở tại levelPrice.|
+//| Lệnh ở bậc khác (price khác) không chọn, không hiển thị.           |
+//+------------------------------------------------------------------+
+void MarkAllTypesAtLevelWithBalancePrepare(double levelPrice)
+{
+   double tol = gridStep * 0.5;
+   for(int i = 0; i < PositionsTotal(); i++)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket <= 0) continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      long mg = PositionGetInteger(POSITION_MAGIC);
+      if(mg != MagicAA && mg != MagicBB && mg != MagicCC) continue;
+      double posPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+      if(MathAbs(posPrice - levelPrice) > tol) continue;
+      SetBalancePrepareMark(ticket);
+      AppendMarkedTicket(ticket);
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Xóa ghi nhớ / đánh dấu lệnh chọn (khi giá qua đường gốc hoặc tắt cân bằng) |
+//+------------------------------------------------------------------+
+void ClearBalanceSelection()
+{
+   balanceSelectedLevelPrice = 0.0;
+   ArrayResize(balanceSelectedTickets, 0);
+   balancePreparedTicket = 0;
+}
+
+//+------------------------------------------------------------------+
+//| Ghi nhớ, đánh dấu lệnh được chọn để chuẩn bị cho chế độ cân bằng.  |
+//| Chỉ 1 bậc lưới (xa nhất): lưu mức giá bậc + danh sách ticket tại bậc đó. |
+//| Khi bậc đó hết lệnh mới chuyển sang bậc gần hơn (gọi lại với tickets mới). |
+//+------------------------------------------------------------------+
+void MarkSelectedOrdersForBalance(ulong &tickets[], double &openPrices[], int cnt)
+{
+   balanceSelectedLevelPrice = 0.0;
+   ArrayResize(balanceSelectedTickets, 0);
+   balancePreparedTicket = 0;
+   if(cnt <= 0)
+      return;
+   double levelPrice0 = openPrices[0];
+   double tol = gridStep * 0.5;
+   balanceSelectedLevelPrice = levelPrice0;   // ghi nhớ bậc được chọn
+   for(int i = 0; i < cnt; i++)
+   {
+      if(MathAbs(openPrices[i] - levelPrice0) > tol)
+         break;   // chỉ lấy lệnh tại đúng 1 bậc (xa nhất)
+      int n = ArraySize(balanceSelectedTickets);
+      ArrayResize(balanceSelectedTickets, n + 1);
+      balanceSelectedTickets[n] = tickets[i];
+   }
+   if(ArraySize(balanceSelectedTickets) > 0)
+      balancePreparedTicket = balanceSelectedTickets[0];
+}
+
+//+------------------------------------------------------------------+
+//| Cập nhật đánh dấu (gọi MarkSelectedOrdersForBalance), xóa nhãn chart cũ. |
+//+------------------------------------------------------------------+
+void UpdateBalancePrepareMarks(ulong &tickets[], double &openPrices[], int cnt)
+{
+   ObjectsDeleteAll(0, OBJ_PREFIX_BALANCE_PREPARE);
+   MarkSelectedOrdersForBalance(tickets, openPrices, cnt);
 }
 
 //+------------------------------------------------------------------+
@@ -982,7 +1173,7 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
    double dealPnL = HistoryDealGetDouble(trans.deal, DEAL_PROFIT)
                   + HistoryDealGetDouble(trans.deal, DEAL_SWAP)
                   + HistoryDealGetDouble(trans.deal, DEAL_COMMISSION);
-   // Pool = TP in session - lock in session. lockedProfitReserve cumulative across sessions, never reset; $ lock not used for balance.
+   // Lock profit (tiền tiết kiệm): apply same % to AA, BB, CC and DD TP closes. lockedProfitReserve cumulative; pool = TP - session lock.
    if(EnableLockProfit && LockProfitPct > 0 && dealPnL > 0)
    {
       double pct = MathMin(100.0, MathMax(0.0, LockProfitPct));
@@ -991,12 +1182,14 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
       sessionLockedProfit += locked;   // Lock in session (so pool = TP - session lock)
       dealPnL -= locked;
    }
-   sessionClosedProfit += dealPnL;   // Balance pool = session TP - session lock
+   sessionClosedProfit += dealPnL;   // Balance pool = session TP (AA+BB+CC+DD) - session lock; used to balance AA/BB/CC only (DD not balanced)
    long dealMagic = HistoryDealGetInteger(trans.deal, DEAL_MAGIC);
    if(dealMagic == MagicBB)
       sessionClosedProfitBB += dealPnL;
    if(dealMagic == MagicCC)
       sessionClosedProfitCC += dealPnL;
+   if(dealMagic == MagicDD)
+      sessionClosedProfitDD += dealPnL;
 }
 
 //+------------------------------------------------------------------+
@@ -1151,6 +1344,42 @@ double GetTakeProfitPipsCC()
 }
 
 //+------------------------------------------------------------------+
+//| DD: Lot level 1 (scaled by capital % growth, same as AA/BB/CC)    |
+//+------------------------------------------------------------------+
+double GetBaseLotDD()
+{
+   return (EnableScaleByAccountGrowth) ? (LotSizeDD * sessionMultiplier) : LotSizeDD;
+}
+
+//+------------------------------------------------------------------+
+//| DD: Lot by level (Fixed or Geometric). isSellLimit=true = above base (Sell Limit), false = below base (Buy Limit) |
+//+------------------------------------------------------------------+
+double GetLotForLevelDD(bool isSellLimit, int levelNum)
+{
+   int absLevel = MathAbs(levelNum);
+   double baseLot = GetBaseLotDD();
+   double lot = baseLot;
+   if(absLevel <= 1 || DDLotScale == LOT_FIXED)
+      lot = baseLot;
+   else if(DDLotScale == LOT_GEOMETRIC)
+      lot = baseLot * MathPow(LotMultDD, absLevel - 1);
+   double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+   double maxLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
+   if(MaxLotDD > 0)
+      maxLot = MathMin(maxLot, MaxLotDD);
+   double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+   lot = MathMax(minLot, MathMin(maxLot, lot));
+   lot = MathFloor(lot / lotStep) * lotStep;
+   if(lot < minLot) lot = minLot;
+   return NormalizeDouble(lot, 2);
+}
+
+double GetTakeProfitPipsDD()
+{
+   return TakeProfitPipsDD;
+}
+
+//+------------------------------------------------------------------+
 //| Initialize level prices - evenly spaced using gridStep            |
 //+------------------------------------------------------------------+
 void InitializeGridLevels()
@@ -1196,7 +1425,7 @@ bool PositionExistsAtLevelWithMagic(double priceLevel, long whichMagic)
 }
 
 //+------------------------------------------------------------------+
-//| Per level: max 1 order per type (AA, BB, CC) per input. Remove duplicate pending; if position at level keep 0 pending. |
+//| Per level: max 1 order per type (AA, BB, CC, DD) per input. Remove duplicate pending; if position at level keep 0 pending. |
 //+------------------------------------------------------------------+
 void RemoveDuplicateOrdersAtLevel()
 {
@@ -1251,17 +1480,61 @@ void RemoveDuplicateOrdersAtLevel()
          }
       }
    }
+   // DD: Sell Limit above base (L < MaxGridLevels), Buy Limit below base (L >= MaxGridLevels); max 1 per level
+   if(EnableDD)
+   {
+      for(int L = 0; L < nLevels; L++)
+      {
+         double priceLevel = gridLevels[L];
+         bool isSellLevel = (L < MaxGridLevels);
+         bool isBuy = !isSellLevel;
+         int positionCount = 0;
+         for(int i = 0; i < PositionsTotal(); i++)
+         {
+            ulong ticket = PositionGetTicket(i);
+            if(ticket <= 0) continue;
+            if(PositionGetInteger(POSITION_MAGIC) != MagicDD || PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+            if((PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) != isBuy) continue;
+            double posPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+            if(MathAbs(posPrice - priceLevel) < tolerance)
+               positionCount++;
+         }
+         ulong pendingTickets[];
+         ENUM_ORDER_TYPE wantType = isSellLevel ? ORDER_TYPE_SELL_LIMIT : ORDER_TYPE_BUY_LIMIT;
+         for(int i = 0; i < OrdersTotal(); i++)
+         {
+            ulong t = OrderGetTicket(i);
+            if(t <= 0) continue;
+            if(OrderGetInteger(ORDER_MAGIC) != MagicDD || OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
+            if(StringFind(OrderGetString(ORDER_COMMENT), CommentOrder) != 0) continue;
+            ENUM_ORDER_TYPE ot = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+            if(ot != wantType) continue;
+            double orderPrice = OrderGetDouble(ORDER_PRICE_OPEN);
+            if(MathAbs(orderPrice - priceLevel) >= tolerance) continue;
+            int n = ArraySize(pendingTickets);
+            ArrayResize(pendingTickets, n + 1);
+            pendingTickets[n] = t;
+         }
+         int keepPendings = (positionCount >= 1) ? 0 : 1;
+         if(ArraySize(pendingTickets) > keepPendings)
+         {
+            for(int k = keepPendings; k < ArraySize(pendingTickets); k++)
+               trade.OrderDelete(pendingTickets[k]);
+         }
+      }
+   }
 }
 
 //+------------------------------------------------------------------+
 //| Balance rules for AA, BB, CC:                                    |
 //| Pool = TP in current session minus lock in session.               |
-//| 1. Only close losing positions on OPPOSITE side of current price vs base: |
-//|    - Price above base -> close Sell (below base); lock Buy (do not close Buy). |
-//|    - Price below base -> close Buy (above base); lock Sell (do not close Sell). |
-//| 2. Close losing positions FARTHEST from base first, then closer. Same level: AA->BB->CC |
-//| 3. Price must be >= 5 levels from base to run balance.             |
-//| Shared pool, each type uses own threshold.                         |
+//| 1. Only close losing positions on OPPOSITE side of current price vs base. |
+//| 2. Farthest from base first; same level: AA->BB->CC               |
+//| 3. Prepare: price >= PREPARE levels from base -> select farthest   |
+//|    opposite loser (no close). Clear prepare only when price CROSSES |
+//|    base (not when only moving back within 3 levels on same side).   |
+//| 4. Execute: price >= EXECUTE levels from base + pool enough ->   |
+//|    close/partial; then next closer; wait if pool insufficient.     |
 //+------------------------------------------------------------------+
 void DoBalanceAll()
 {
@@ -1286,20 +1559,55 @@ void DoBalanceAll()
    bool priceAboveBase = (bid > basePrice);
    bool priceBelowBase = (bid < basePrice);
    int nLevels = ArraySize(gridLevels);
-   // Price must be at least 5 levels from base to allow balance (fixed default)
-   int balMin = MathMax(1, MathMin(MaxGridLevels, 5));
-   int idxBal = balMin - 1;
+   int prepLevels = MathMax(1, MathMin(MaxGridLevels, BALANCE_PREPARE_LEVELS));
+   int execLevels = MathMax(prepLevels, MathMin(MaxGridLevels, BALANCE_EXECUTE_LEVELS));
+   int idxPrep = prepLevels - 1;   // e.g. 3 levels -> index 2 above base
+   int idxExec = execLevels - 1;   // e.g. 5 levels -> index 4 above base
+
+   // Clear preparation only when price CROSSES base (not when only <3 levels on same side)
+   // Prepared while above base -> clear when bid at or below base; prepared while below -> clear when bid at or above base
+   if(balancePrepareDirection == 1 && !priceAboveBase)
+   {
+      ObjectsDeleteAll(0, OBJ_PREFIX_BALANCE_PREPARE);
+      ClearBalanceSelection();
+      ClearAllBalancePrepareMarks();
+      balancePrepareDirection = 0;
+   }
+   else if(balancePrepareDirection == -1 && !priceBelowBase)
+   {
+      ObjectsDeleteAll(0, OBJ_PREFIX_BALANCE_PREPARE);
+      ClearBalanceSelection();
+      ClearAllBalancePrepareMarks();
+      balancePrepareDirection = 0;
+   }
+   if(!priceAboveBase && !priceBelowBase)
+      return;   // at base: no prepare/execute this tick (already cleared if had prepare)
+   // Need >= 3 levels from base on current side to (re)select preparation; <3 on same side: keep existing prepare, do nothing
    if(priceAboveBase)
    {
-      if(nLevels <= idxBal || bid < gridLevels[idxBal])
-         return;
+      if(nLevels <= idxPrep || bid < gridLevels[idxPrep])
+         return;   // not enough levels to refresh prepare; do not clear unless cross base (handled above)
+      if(nLevels <= idxExec || bid < gridLevels[idxExec])
+         balancePrepareDirection = 1;   // prepare-only until execute zone
    }
    else if(priceBelowBase)
    {
-      if(nLevels <= MaxGridLevels + idxBal)
-         return;
-      if(bid > gridLevels[MaxGridLevels + idxBal])
-         return;
+      int idxPrepBelow = MaxGridLevels + idxPrep;
+      if(nLevels <= idxPrepBelow || bid > gridLevels[idxPrepBelow])
+         return;   // not deep enough below base to refresh; keep prepare until cross base
+      int idxExecBelow = MaxGridLevels + idxExec;
+      if(nLevels <= idxExecBelow || bid > gridLevels[idxExecBelow])
+         balancePrepareDirection = -1;
+   }
+
+   bool executeZone = false;
+   if(priceAboveBase && nLevels > idxExec && bid >= gridLevels[idxExec])
+      executeZone = true;
+   else if(priceBelowBase)
+   {
+      int idxExecBelow = MaxGridLevels + idxExec;
+      if(nLevels > idxExecBelow && bid <= gridLevels[idxExecBelow])
+         executeZone = true;
    }
    ulong tickets[];
    double pls[], vols[], openPrices[];
@@ -1363,7 +1671,18 @@ void DoBalanceAll()
             int tt = types[i]; types[i] = types[j]; types[j] = tt;
          }
       }
-   // Balance pool: do not use $ lock (lockedProfitReserve cumulative, never reset) to cover loss
+   // Chỉ chọn lệnh mở ở bậc xa nhất; dán nhãn bậc đó. Khi bậc đó hết lệnh thì tick sau chuyển sang bậc gần hơn, bậc cũ hết nhãn.
+   if(!executeZone)
+   {
+      if(balancePrepareDirection == 0)
+         balancePrepareDirection = priceAboveBase ? 1 : -1;
+      UpdateBalancePrepareMarks(tickets, openPrices, cnt);
+      return;
+   }
+   // Execute: ghi nhớ/đánh dấu lệnh chọn rồi chỉ đóng đúng lệnh tại bậc được chọn.
+   UpdateBalancePrepareMarks(tickets, openPrices, cnt);
+   double levelPrice0 = balanceSelectedLevelPrice;   // dùng bậc đã ghi nhớ để xóa cân bằng đúng lệnh
+   double tolLevel = gridStep * 0.5;
    double balanceFloor = sessionStartBalance + lockedProfitReserve;
    double balanceNow = AccountInfoDouble(ACCOUNT_BALANCE);
    double runningClosed = sessionClosedProfitRemaining;
@@ -1372,6 +1691,8 @@ void DoBalanceAll()
    int closedCount = 0;
    for(int k = 0; k < cnt; k++)
    {
+      if(MathAbs(openPrices[k] - levelPrice0) > tolLevel)
+         break;   // chỉ xóa cân bằng lệnh tại bậc được chọn; bậc gần hơn đợi tick sau
       int typ = types[k];
       double thresh = thresholds[typ];
       double afterClose = runningClosed + pls[k];
@@ -1409,6 +1730,7 @@ void DoBalanceAll()
       sessionClosedProfitRemaining = runningClosed;
       Print("Balance: closed ", closedCount, " (AA+BB+CC, farthest first). Pool remaining ", runningClosed, ".");
    }
+   // Next tick DoBalanceAll rebuilds queue; prepare path or execute path will SetBalancePrepareMark on new head
 }
 
 //+------------------------------------------------------------------+
@@ -1434,6 +1756,8 @@ void ManageGridOrders()
                EnsureOrderAtLevelBB(true, levelAbove, +levelNum);
             if(EnableCC)
                EnsureOrderAtLevelCC(true, levelAbove, +levelNum);
+            if(EnableDD)
+               EnsureOrderAtLevelDD(true, levelAbove, +levelNum);   // Sell Limit above base
          }
       }
    // 2. Levels below base (Sell Stop): level 1 (nearest base) to MaxGridLevels (farthest)
@@ -1449,6 +1773,8 @@ void ManageGridOrders()
                EnsureOrderAtLevelBB(false, levelBelow, -levelNum);
             if(EnableCC)
                EnsureOrderAtLevelCC(false, levelBelow, -levelNum);
+            if(EnableDD)
+               EnsureOrderAtLevelDD(false, levelBelow, -levelNum);   // Buy Limit below base
          }
       }
 }
@@ -1514,6 +1840,28 @@ void EnsureOrderAtLevelCC(bool isBuyStop, double priceLevel, int levelNum)
    if(!CanPlaceOrderAtLevel(isBuyStop ? ORDER_TYPE_BUY_STOP : ORDER_TYPE_SELL_STOP, priceLevel, MagicCC))
       return;
    PlacePendingOrderCC(isBuyStop, priceLevel, levelNum);
+}
+
+//+------------------------------------------------------------------+
+//| DD: Ensure order at level - Sell Limit above base, Buy Limit below base. No balance. |
+//+------------------------------------------------------------------+
+void EnsureOrderAtLevelDD(bool isSellLimit, double priceLevel, int levelNum)
+{
+   ulong ticket = 0;
+   double existingPrice = 0.0;
+   ENUM_ORDER_TYPE ot = isSellLimit ? ORDER_TYPE_SELL_LIMIT : ORDER_TYPE_BUY_LIMIT;
+   if(GetPendingOrderAtLevel(ot, priceLevel, ticket, existingPrice, MagicDD))
+   {
+      double desiredPrice = NormalizeDouble(priceLevel, dgt);
+      if(MathAbs(existingPrice - desiredPrice) > (pnt / 2.0))
+         AdjustPendingOrderToLevel(ticket, ot, priceLevel, GetTakeProfitPipsDD());
+      return;
+   }
+   if(PositionExistsAtLevelWithMagic(priceLevel, MagicDD))
+      return;
+   if(!CanPlaceOrderAtLevel(ot, priceLevel, MagicDD))
+      return;
+   PlacePendingOrderDD(isSellLimit, priceLevel, levelNum);
 }
 
 //+------------------------------------------------------------------+
@@ -1704,6 +2052,35 @@ void PlacePendingOrderCC(bool isBuyStop, double priceLevel, int levelNum)
       Print("Order placed CC: ", isBuyStop ? "BuyStop" : "SellStop", " at ", price, " lot ", lot, " (level ", levelNum > 0 ? "+" : "", levelNum, ")");
    else
       Print("Order error CC | Error: ", GetLastError());
+}
+
+//+------------------------------------------------------------------+
+//| DD: Place pending order (Sell Limit above base, Buy Limit below base). No balance. |
+//+------------------------------------------------------------------+
+void PlacePendingOrderDD(bool isSellLimit, double priceLevel, int levelNum)
+{
+   double price = NormalizeDouble(priceLevel, dgt);
+   double lot   = GetLotForLevelDD(isSellLimit, levelNum);
+   double sl = 0, tp = 0;
+   double tpPips = GetTakeProfitPipsDD();
+   if(tpPips > 0)
+   {
+      if(isSellLimit)
+         tp = NormalizeDouble(price - tpPips * pnt * 10.0, dgt);
+      else
+         tp = NormalizeDouble(price + tpPips * pnt * 10.0, dgt);
+   }
+   trade.SetExpertMagicNumber(MagicDD);
+   string cmt = CommentOrder;
+   bool result = false;
+   if(isSellLimit)
+      result = trade.SellLimit(lot, price, _Symbol, sl, tp, ORDER_TIME_GTC, 0, cmt);
+   else
+      result = trade.BuyLimit(lot, price, _Symbol, sl, tp, ORDER_TIME_GTC, 0, cmt);
+   if(result)
+      Print("Order placed DD: ", isSellLimit ? "SellLimit" : "BuyLimit", " at ", price, " lot ", lot, " (level ", levelNum > 0 ? "+" : "", levelNum, ")");
+   else
+      Print("Order error DD | Error: ", GetLastError());
 }
 
 //+------------------------------------------------------------------+
