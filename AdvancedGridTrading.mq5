@@ -197,8 +197,7 @@ int OnInit()
    trade.SetExpertMagicNumber(MagicAA);
    dgt = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
    pnt = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-   
-   basePrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   basePrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);   // Khi khởi động: đường gốc = giá hiện tại
    sessionClosedProfit = 0.0;
    sessionLockedProfit = 0.0;
    sessionClosedProfitBB = 0.0;
@@ -257,10 +256,9 @@ int OnInit()
    if(EnableDD)
       Print("DD (SellLimit above + BuyLimit below) L1,L2,L3: ", GetLotForLevelDD(true,1), ",", GetLotForLevelDD(true,2), ",", GetLotForLevelDD(true,3));
    Print("========================================");
-   
-   // On start place orders at grid levels
+   // Thêm lệnh chờ các loại (AA, BB, CC, DD theo input) từ bậc 1, bậc 2, ... bậc N
    ManageGridOrders();
-   DrawBaseLine();           // Base line at basePrice (no draw, delete only)
+   DrawBaseLine();
    DrawSessionStartLine();   // Session start vertical line (no draw, delete only)
    DrawRealtimeLine();       // Realtime vertical line (no draw, delete only)
    return(INIT_SUCCEEDED);
@@ -370,7 +368,7 @@ void OnTick()
                   trailingSLPlaced = false;
                   lastBuyTrailPrice = 0.0;
                   lastSellTrailPrice = 0.0;
-                  ClearBalanceSelection();          // Reset đánh dấu lệnh chọn khi sang phiên mới
+                  ClearBalanceSelection();
                   balancePrepareDirection = 0;
                   basePrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
                   InitializeGridLevels();
@@ -425,13 +423,13 @@ void OnTick()
          trailingGocSell = 0.0;
          lastBuyTrailPrice = 0.0;
          lastSellTrailPrice = 0.0;
-         ClearBalanceSelection();          // Reset đánh dấu lệnh chọn khi sang phiên mới (breakeven reset)
+         ClearBalanceSelection();
          balancePrepareDirection = 0;
          basePrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
          InitializeGridLevels();
          DrawBaseLine();
          DrawSessionStartLine();
-         Print("Reset at breakeven: max level from base = ", maxLevelsFromBase, " <= ", xLevels, ", open+TP-lock = ", openFloating + sessionClosedProfit, " >= 0. New base = ", basePrice);
+         Print("Reset at breakeven: max level from base = ", maxLevelsFromBase, ", open+TP-lock >= 0. New base = ", basePrice);
          if(EnableResetNotification) { SendResetNotification("Breakeven"); double b = AccountInfoDouble(ACCOUNT_BALANCE); sessionPeakBalance = b; sessionMinBalance = b; sessionMaxSingleLot = 0; sessionTotalLotAtMaxLot = 0; }
          return;
       }
@@ -448,10 +446,10 @@ void OnTick()
          if(sessionStartTime > 0 && (datetime)PositionGetInteger(POSITION_TIME) < sessionStartTime) continue;
          posCount++;
       }
-      // When price reverses and hits SL -> all positions closed -> posCount=0 -> EA reset (new session, new base)
+      // When price reverses and hits SL -> all positions closed -> posCount=0 -> EA reset (new base, place orders)
       if(posCount == 0)
       {
-         CloseAllPositionsAndOrders();   // Clean up any remaining pending orders
+         CloseAllPositionsAndOrders();
          UpdateSessionMultiplierFromAccountGrowth();
          lastResetTime = TimeCurrent();
          gongLaiMode = false;
@@ -470,15 +468,16 @@ void OnTick()
          lastBalanceCCCloseTime = 0;
          lastBalanceAAByBBCloseTime = 0;
          sessionPeakProfit = 0.0;
-         ClearBalanceSelection();          // Reset đánh dấu lệnh chọn khi trailing SL hit (phiên mới)
+         ClearBalanceSelection();
          balancePrepareDirection = 0;
+         DrawPointABaseLine();
          basePrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
          InitializeGridLevels();
          DrawBaseLine();
          DrawSessionStartLine();
-         DrawPointABaseLine();   // Remove point A line (pointABaseLevel=0)
-         Print("Trailing: price reversed, SL hit, all positions closed. EA reset, new base = ", basePrice, ". Placing orders again.");
+         Print("Trailing: SL hit, all positions closed. EA reset, new base = ", basePrice, ". Placing orders again.");
          if(EnableResetNotification) { SendResetNotification("Trailing profit (SL hit)"); double b = AccountInfoDouble(ACCOUNT_BALANCE); sessionPeakBalance = b; sessionMinBalance = b; sessionMaxSingleLot = 0; sessionTotalLotAtMaxLot = 0; }
+         ManageGridOrders();
       }
       else
          DoGongLaiTrailing();
@@ -922,7 +921,8 @@ void UpdateBalancePrepareMarks(ulong &tickets[], double &openPrices[], int cnt)
 }
 
 //+------------------------------------------------------------------+
-//| Close all positions and cancel pending orders (same Magic)        |
+//| Close all positions and cancel all pending orders (EA magic).     |
+//| After this: no open positions, no pending orders. Used on every reset. |
 //+------------------------------------------------------------------+
 void CloseAllPositionsAndOrders()
 {
@@ -1734,49 +1734,44 @@ void DoBalanceAll()
 }
 
 //+------------------------------------------------------------------+
+//| Thêm lệnh chờ từ bậc 1 (gần đường gốc) -> bậc 2 -> ... -> bậc N. |
+//| Tại mỗi bậc: kiểm tra đầy đủ thiếu lệnh chờ loại nào (AA, BB, CC, DD theo input) thì thêm. |
+//| Trên gốc: Buy Stop (AA/BB/CC) + Sell Limit (DD). Dưới gốc: Sell Stop (AA/BB/CC) + Buy Limit (DD). |
+//+------------------------------------------------------------------+
 void ManageGridOrders()
 {
    if(gongLaiMode)
       return;
    
    CancelStopOrdersOutsideBaseZone();
-   RemoveDuplicateOrdersAtLevel();   // Max 1 order per type per level
+   RemoveDuplicateOrdersAtLevel();
    double currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   // Place orders from level nearest base outward: first levels above base, then below base
-   // 1. Levels above base (Buy Stop): level 1 (nearest base) to MaxGridLevels (farthest)
+   // Phía trên gốc: bậc 1 (gần gốc) -> 2 -> ... -> N. Mỗi bậc kiểm tra đủ AA, BB, CC, DD (bật thì đặt nếu thiếu).
    for(int levelNum = 1; levelNum <= MaxGridLevels; levelNum++)
+   {
+      int idxAbove = levelNum - 1;
+      double levelAbove = gridLevels[idxAbove];
+      if(levelAbove >= basePrice && levelAbove > currentPrice)
       {
-         int idxAbove = levelNum - 1;
-         double levelAbove = gridLevels[idxAbove];
-         if(levelAbove >= basePrice && levelAbove > currentPrice)   // Buy Stop: level above base and above price
-         {
-            if(EnableAA)
-               EnsureOrderAtLevel(ORDER_TYPE_BUY_STOP, levelAbove, +levelNum);
-            if(EnableBB)
-               EnsureOrderAtLevelBB(true, levelAbove, +levelNum);
-            if(EnableCC)
-               EnsureOrderAtLevelCC(true, levelAbove, +levelNum);
-            if(EnableDD)
-               EnsureOrderAtLevelDD(true, levelAbove, +levelNum);   // Sell Limit above base
-         }
+         if(EnableAA) EnsureOrderAtLevel(ORDER_TYPE_BUY_STOP, levelAbove, +levelNum);
+         if(EnableBB) EnsureOrderAtLevelBB(true, levelAbove, +levelNum);
+         if(EnableCC) EnsureOrderAtLevelCC(true, levelAbove, +levelNum);
+         if(EnableDD) EnsureOrderAtLevelDD(true, levelAbove, +levelNum);
       }
-   // 2. Levels below base (Sell Stop): level 1 (nearest base) to MaxGridLevels (farthest)
+   }
+   // Phía dưới gốc: bậc 1 (gần gốc) -> 2 -> ... -> N. Mỗi bậc kiểm tra đủ AA, BB, CC, DD (bật thì đặt nếu thiếu).
    for(int levelNum = 1; levelNum <= MaxGridLevels; levelNum++)
+   {
+      int idxBelow = MaxGridLevels + levelNum - 1;
+      double levelBelow = gridLevels[idxBelow];
+      if(levelBelow <= basePrice && levelBelow < currentPrice)
       {
-         int idxBelow = MaxGridLevels + levelNum - 1;
-         double levelBelow = gridLevels[idxBelow];
-         if(levelBelow <= basePrice && levelBelow < currentPrice)   // Sell Stop: level below base and below price
-         {
-            if(EnableAA)
-               EnsureOrderAtLevel(ORDER_TYPE_SELL_STOP, levelBelow, -levelNum);
-            if(EnableBB)
-               EnsureOrderAtLevelBB(false, levelBelow, -levelNum);
-            if(EnableCC)
-               EnsureOrderAtLevelCC(false, levelBelow, -levelNum);
-            if(EnableDD)
-               EnsureOrderAtLevelDD(false, levelBelow, -levelNum);   // Buy Limit below base
-         }
+         if(EnableAA) EnsureOrderAtLevel(ORDER_TYPE_SELL_STOP, levelBelow, -levelNum);
+         if(EnableBB) EnsureOrderAtLevelBB(false, levelBelow, -levelNum);
+         if(EnableCC) EnsureOrderAtLevelCC(false, levelBelow, -levelNum);
+         if(EnableDD) EnsureOrderAtLevelDD(false, levelBelow, -levelNum);
       }
+   }
 }
 
 //+------------------------------------------------------------------+
