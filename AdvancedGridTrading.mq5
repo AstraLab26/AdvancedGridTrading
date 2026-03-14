@@ -71,7 +71,7 @@ input bool EnableDD = true;                       // Enable DD (Sell Limit above
 input double LotSizeDD = 0.01;                   // DD: Lot size level 1
 input ENUM_LOT_SCALE DDLotScale = LOT_FIXED;      // DD: Fixed / Geometric
 input double LotMultDD = 1.3;                    // DD: Lot multiplier for level 2+ (Geometric)
-input double MaxLotDD = 1.5;                     // DD: Max lot per order (0=no limit)
+input double MaxLotDD = 0.01;                    // DD: Max lot per order (0=no limit)
 input double TakeProfitPipsDD = 2000.0;          // DD: Take profit (pips; 0=off)
 
 //+------------------------------------------------------------------+
@@ -92,7 +92,7 @@ input int ResetBreakevenMaxLevelsFromBase = 10;        // Min grid levels from b
 //+------------------------------------------------------------------+
 input group "=== 4. CAPITAL % SCALING ==="
 input bool EnableScaleByAccountGrowth = true;   // Scale lot, TP, SL, trailing by % capital growth
-input double BaseCapitalUSD = 100000.0;         // Base capital (USD): 0=balance when EA attached; >0=use this value
+input double BaseCapitalUSD = 50000.0;         // Base capital (USD): 0=balance when EA attached; >0=use this value
 input double AccountGrowthScalePct = 50.0;     // x% (max 100): capital +100% vs base -> multiply by x%
 input double MaxScaleIncreasePct = 100.0;      // Max increase % for lot/functions (0=no limit). E.g. 100 = lot/functions increase max 100%, mult capped at 2.0
 
